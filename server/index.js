@@ -1,12 +1,110 @@
 const http = require('http');
 const crypto = require('crypto');
+const express = require('express');
+const multer = require('multer');
+const SpeechService = require('./speechService');
+const ShapeRecognitionService = require('./shapeRecognitionService');
+const SummaryService = require('./summaryService');
 
-const server = http.createServer((req, res) => {
-  res.writeHead(200, {
-    'Content-Type': 'text/plain',
-    'Access-Control-Allow-Origin': '*'
-  });
-  res.end('WebSocket server running');
+const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// 配置CORS
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  next();
+});
+
+// 配置multer用于文件上传
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
+
+const server = http.createServer(app);
+
+// 语音转写API端点
+app.post('/api/speech', upload.single('audio'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No audio file provided' });
+    }
+    
+    // 这里应该使用SpeechService处理音频并返回转写结果
+    // 由于需要真实的讯飞API密钥，这里暂时返回模拟数据
+    setTimeout(() => {
+      res.json({ success: true, text: '这是一段模拟的语音转写结果，用于测试功能。' });
+    }, 1000);
+    
+    // 实际使用时的代码：
+    /*
+    const speechService = new SpeechService();
+    speechService.connect(
+      (text) => {
+        res.json({ success: true, text });
+        speechService.close();
+      },
+      (error) => {
+        res.status(500).json({ success: false, error: error.message });
+        speechService.close();
+      },
+      () => {
+        console.log('Speech service closed');
+      }
+    );
+    
+    // 处理音频数据并发送到讯飞API
+    // 注意：这里需要根据实际音频格式进行处理
+    */
+  } catch (error) {
+    console.error('Error processing speech request:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 健康检查端点
+app.get('/', (req, res) => {
+  res.send('WebSocket server running');
+});
+
+// 图形识别API端点
+app.post('/api/recognize-shape', (req, res) => {
+  try {
+    const { points } = req.body;
+    
+    if (!points || !Array.isArray(points)) {
+      return res.status(400).json({ success: false, error: 'Invalid points data' });
+    }
+    
+    const shapeRecognitionService = new ShapeRecognitionService();
+    const recognizedShape = shapeRecognitionService.recognizeShape(points);
+    const beautifiedShape = shapeRecognitionService.beautifyShape(recognizedShape);
+    
+    res.json({ success: true, shape: beautifiedShape });
+  } catch (error) {
+    console.error('Error recognizing shape:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 会议摘要生成API端点
+app.post('/api/generate-summary', async (req, res) => {
+  try {
+    const { whiteboardContent, transcriptionHistory } = req.body;
+    
+    if (!whiteboardContent) {
+      return res.status(400).json({ success: false, error: 'Whiteboard content is required' });
+    }
+    
+    const summaryService = new SummaryService();
+    const summary = await summaryService.generateSummary(whiteboardContent, transcriptionHistory || '');
+    
+    res.json({ success: true, summary });
+  } catch (error) {
+    console.error('Error generating summary:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 let canvasState = [];
@@ -52,11 +150,21 @@ server.on('upgrade', (req, socket, head) => {
               sendWebSocketMessage(client, JSON.stringify({ type: 'draw', data: parsedData.data }));
             }
           });
+        } else if (parsedData.type === 'text') {
+          canvasState.push(parsedData.data);
+          // 广播给其他用户
+          clients.forEach((client) => {
+            if (client !== socket) {
+              sendWebSocketMessage(client, JSON.stringify({ type: 'text', data: parsedData.data }));
+            }
+          });
         } else if (parsedData.type === 'clear') {
           canvasState = [];
-          // 广播给所有用户
+          // 广播给除了发送者之外的所有用户
           clients.forEach((client) => {
-            sendWebSocketMessage(client, JSON.stringify({ type: 'clear' }));
+            if (client !== socket) {
+              sendWebSocketMessage(client, JSON.stringify({ type: 'clear' }));
+            }
           });
         }
       }
