@@ -143,14 +143,19 @@ class MeetingRoomManager {
   broadcastToRoom(code, message, excludeSocketId = null) {
     const room = this.rooms.get(code);
     if (!room) {
+      console.log(`Room ${code} not found for broadcasting`);
       return;
     }
 
+    console.log(`Broadcasting to room ${code}, members count: ${room.members.length}, excludeSocketId: ${excludeSocketId}`);
     room.members.forEach(member => {
       if (member.socketId !== excludeSocketId) {
         const socket = clients.find(client => client.id === member.socketId);
         if (socket) {
+          console.log(`Sending message to socket ${member.socketId}`);
           sendWebSocketMessage(socket, message);
+        } else {
+          console.log(`Socket ${member.socketId} not found`);
         }
       }
     });
@@ -373,9 +378,11 @@ server.on('upgrade', (req, socket, head) => {
           meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'clear' }), socket.id);
         } else if (parsedData.type === 'canvasState') {
           // 更新会议室画布状态
+          console.log(`Received canvasState from socket ${socket.id} in room ${roomCode}, elements length: ${parsedData.data.length}`);
           meetingRoomManager.updateCanvasState(roomCode, parsedData.data);
           
           // 广播给同一会议室的其他用户
+          console.log(`Broadcasting canvasState to room ${roomCode}, excluding socket ${socket.id}`);
           meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'canvasState', data: parsedData.data }), socket.id);
         } else if (parsedData.type === 'beautify') {
           // 处理美化操作

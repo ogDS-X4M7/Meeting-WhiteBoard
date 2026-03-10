@@ -116,28 +116,36 @@ export default {
     setupWebSocket() {
       try {
         // 使用传入的roomCode建立WebSocket连接
+        console.log(`Setting up WebSocket connection to room ${this.roomCode}`);
         this.socket = new WebSocket(`ws://localhost:8080?roomCode=${this.roomCode}`);
         
         this.socket.onopen = () => {
-          console.log(`WebSocket connected to room ${this.roomCode}`);
+          console.log(`WebSocket connected to room ${this.roomCode}, readyState: ${this.socket.readyState}`);
         };
         
         this.socket.onmessage = (event) => {
           try {
+            console.log('Received WebSocket message:', event.data);
             const data = JSON.parse(event.data);
             if (data.type === 'canvasState') {
+              console.log('Received canvasState message, elements length:', data.data.length);
               this.elements = data.data;
               this.redrawCanvas();
+              console.log('Canvas redrawn after receiving canvasState');
             } else if (data.type === 'draw') {
+              console.log('Received draw message:', data.data);
               this.elements.push(data.data);
               this.redrawCanvas();
             } else if (data.type === 'text') {
+              console.log('Received text message:', data.data);
               this.elements.push(data.data);
               this.redrawCanvas();
             } else if (data.type === 'clear') {
+              console.log('Received clear message');
               this.elements = [];
               this.ctx.clearRect(0, 0, this.width, this.height);
             } else if (data.type === 'beautify') {
+              console.log('Received beautify message:', data.data);
               // 处理来自服务器的美化操作
               const { strokeId, newElement } = data.data;
               
@@ -252,57 +260,19 @@ export default {
         this.ctx.lineTo(currentX, currentY);
         this.ctx.stroke();
         
-        // 从elements数组中移除被擦除的元素
-        // 这里使用简单的碰撞检测，检查元素是否与橡皮路径相交
-        this.elements = this.elements.filter(element => {
-          if (element.type === 'pen') {
-            // 对于画笔元素，检查线段是否与橡皮路径相交
-            return !this.doLinesIntersect(
-              element.startX, element.startY, element.lastX, element.lastY,
-              this.startX, this.startY, currentX, currentY
-            );
-          } else if (element.type === 'text') {
-            // 对于文本元素，检查文本区域是否与橡皮路径相交
-            const textWidth = this.ctx.measureText(element.text).width;
-            const textHeight = element.lineWidth * 2;
-            return !this.isPointInRect(currentX, currentY, element.x, element.y - textHeight, textWidth, textHeight);
-          } else if (element.type === 'rectangle') {
-            // 对于矩形元素，检查矩形是否与橡皮路径相交
-            const rectX = Math.min(element.startX, element.lastX);
-            const rectY = Math.min(element.startY, element.lastY);
-            const rectWidth = Math.abs(element.lastX - element.startX);
-            const rectHeight = Math.abs(element.lastY - element.startY);
-            return !this.isPointInRect(currentX, currentY, rectX, rectY, rectWidth, rectHeight);
-          } else if (element.type === 'circle') {
-            // 对于圆形元素，检查圆形是否与橡皮路径相交
-            const centerX = (element.startX + element.lastX) / 2;
-            const centerY = (element.startY + element.lastY) / 2;
-            const radius = Math.max(
-              Math.abs(element.lastX - element.startX),
-              Math.abs(element.lastY - element.startY)
-            ) / 2;
-            const distance = Math.sqrt(Math.pow(currentX - centerX, 2) + Math.pow(currentY - centerY, 2));
-            return distance > radius;
-          } else if (element.type === 'arrow') {
-            // 对于箭头元素，检查线段是否与橡皮路径相交
-            return !this.doLinesIntersect(
-              element.startX, element.startY, element.lastX, element.lastY,
-              this.startX, this.startY, currentX, currentY
-            );
-          }
-          return true;
-        });
+        // 保存橡皮绘制的内容到elements数组
+        const element = {
+          type: 'eraser',
+          startX: this.startX,
+          startY: this.startY,
+          lastX: currentX,
+          lastY: currentY,
+          lineWidth: this.lineWidth * 2
+        };
+        this.elements.push(element);
         
-        // 发送清除消息到服务器
-        this.sendWebSocketMessage('clear', {});
-        // 重新发送所有剩余元素到服务器
-        this.elements.forEach(element => {
-          if (element.type === 'text') {
-            this.sendWebSocketMessage('text', element);
-          } else {
-            this.sendWebSocketMessage('draw', element);
-          }
-        });
+        // 发送到服务器
+        this.sendWebSocketMessage('draw', element);
         
         // 更新起点坐标，实现连续擦除
         this.startX = currentX;
@@ -376,6 +346,15 @@ export default {
           // 重新绘制所有元素
           this.ctx.clearRect(0, 0, this.width, this.height);
           this.redrawElements();
+        } else if (this.currentTool === 'eraser') {
+          // 发送橡皮操作的更新
+          console.log('Sending canvas state after erasing, elements length:', this.elements.length);
+          // 发送完整的画布状态到服务器
+          this.sendWebSocketMessage('canvasState', this.elements);
+          // 重新绘制本地画布，确保本地画面与发送到服务器的状态一致
+          this.ctx.clearRect(0, 0, this.width, this.height);
+          this.redrawElements();
+          console.log('Local canvas redrawn after erasing');
         }
         this.isDrawing = false;
       }
@@ -386,77 +365,86 @@ export default {
     },
     redrawElements() {
       this.elements.forEach(element => {
-        this.ctx.strokeStyle = element.color;
-        this.ctx.lineWidth = element.lineWidth;
-        
-        if (element.type === 'pen') {
+        if (element.type === 'eraser') {
+          this.ctx.strokeStyle = '#ffffff';
+          this.ctx.lineWidth = element.lineWidth;
           this.ctx.beginPath();
           this.ctx.moveTo(element.startX, element.startY);
           this.ctx.lineTo(element.lastX, element.lastY);
           this.ctx.stroke();
-        } else if (element.type === 'rectangle') {
-          this.ctx.beginPath();
-          this.ctx.rect(
-            Math.min(element.startX, element.lastX),
-            Math.min(element.startY, element.lastY),
-            Math.abs(element.lastX - element.startX),
-            Math.abs(element.lastY - element.startY)
-          );
-          this.ctx.stroke();
-        } else if (element.type === 'circle') {
-          // 区分用户绘制的圆形和美化后的圆形
-          // 用户绘制的圆形：startX, startY 是圆心，lastX, lastY 是圆周上的点
-          // 美化后的圆形：startX, startY 是左上角，lastX, lastY 是右下角
+        } else {
+          this.ctx.strokeStyle = element.color;
+          this.ctx.lineWidth = element.lineWidth;
           
-          let centerX, centerY, radius;
-          
-          // 检查是否是美化后的圆形（美化后的圆形通常是边界框形式）
-          if (element.center) {
-            // 美化后的圆形，有center属性
-            centerX = element.center.x;
-            centerY = element.center.y;
-            radius = element.radius;
-          } else if (Math.abs(element.lastX - element.startX) === Math.abs(element.lastY - element.startY)) {
-            // 美化后的圆形，没有center属性但宽度和高度相等
-            centerX = (element.startX + element.lastX) / 2;
-            centerY = (element.startY + element.lastY) / 2;
-            radius = (element.lastX - element.startX) / 2;
-          } else {
-            // 用户绘制的圆形
-            centerX = element.startX;
-            centerY = element.startY;
-            radius = Math.sqrt(
-              Math.pow(element.lastX - element.startX, 2) + Math.pow(element.lastY - element.startY, 2)
+          if (element.type === 'pen') {
+            this.ctx.beginPath();
+            this.ctx.moveTo(element.startX, element.startY);
+            this.ctx.lineTo(element.lastX, element.lastY);
+            this.ctx.stroke();
+          } else if (element.type === 'rectangle') {
+            this.ctx.beginPath();
+            this.ctx.rect(
+              Math.min(element.startX, element.lastX),
+              Math.min(element.startY, element.lastY),
+              Math.abs(element.lastX - element.startX),
+              Math.abs(element.lastY - element.startY)
             );
+            this.ctx.stroke();
+          } else if (element.type === 'circle') {
+            // 区分用户绘制的圆形和美化后的圆形
+            // 用户绘制的圆形：startX, startY 是圆心，lastX, lastY 是圆周上的点
+            // 美化后的圆形：startX, startY 是左上角，lastX, lastY 是右下角
+            
+            let centerX, centerY, radius;
+            
+            // 检查是否是美化后的圆形（美化后的圆形通常是边界框形式）
+            if (element.center) {
+              // 美化后的圆形，有center属性
+              centerX = element.center.x;
+              centerY = element.center.y;
+              radius = element.radius;
+            } else if (Math.abs(element.lastX - element.startX) === Math.abs(element.lastY - element.startY)) {
+              // 美化后的圆形，没有center属性但宽度和高度相等
+              centerX = (element.startX + element.lastX) / 2;
+              centerY = (element.startY + element.lastY) / 2;
+              radius = (element.lastX - element.startX) / 2;
+            } else {
+              // 用户绘制的圆形
+              centerX = element.startX;
+              centerY = element.startY;
+              radius = Math.sqrt(
+                Math.pow(element.lastX - element.startX, 2) + Math.pow(element.lastY - element.startY, 2)
+              );
+            }
+            
+            this.ctx.beginPath();
+            this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            this.ctx.stroke();
+          } else if (element.type === 'arrow') {
+            this.ctx.beginPath();
+            this.ctx.moveTo(element.startX, element.startY);
+            this.ctx.lineTo(element.lastX, element.lastY);
+            this.ctx.stroke();
+            // 绘制箭头
+            const angle = Math.atan2(element.lastY - element.startY, element.lastX - element.startX);
+            const arrowLength = 10;
+            this.ctx.beginPath();
+            this.ctx.moveTo(element.lastX, element.lastY);
+            this.ctx.lineTo(
+              element.lastX - arrowLength * Math.cos(angle - Math.PI / 6),
+              element.lastY - arrowLength * Math.sin(angle - Math.PI / 6)
+            );
+            this.ctx.moveTo(element.lastX, element.lastY);
+            this.ctx.lineTo(
+              element.lastX - arrowLength * Math.cos(angle + Math.PI / 6),
+              element.lastY - arrowLength * Math.sin(angle + Math.PI / 6)
+            );
+            this.ctx.stroke();
+          } else if (element.type === 'text') {
+            this.ctx.fillStyle = element.color;
+            this.ctx.font = `${element.lineWidth * 2}px Arial`;
+            this.ctx.fillText(element.text, element.x, element.y);
           }
-          
-          this.ctx.beginPath();
-          this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-          this.ctx.stroke();
-        } else if (element.type === 'arrow') {
-          this.ctx.beginPath();
-          this.ctx.moveTo(element.startX, element.startY);
-          this.ctx.lineTo(element.lastX, element.lastY);
-          this.ctx.stroke();
-          // 绘制箭头
-          const angle = Math.atan2(element.lastY - element.startY, element.lastX - element.startX);
-          const arrowLength = 10;
-          this.ctx.beginPath();
-          this.ctx.moveTo(element.lastX, element.lastY);
-          this.ctx.lineTo(
-            element.lastX - arrowLength * Math.cos(angle - Math.PI / 6),
-            element.lastY - arrowLength * Math.sin(angle - Math.PI / 6)
-          );
-          this.ctx.moveTo(element.lastX, element.lastY);
-          this.ctx.lineTo(
-            element.lastX - arrowLength * Math.cos(angle + Math.PI / 6),
-            element.lastY - arrowLength * Math.sin(angle + Math.PI / 6)
-          );
-          this.ctx.stroke();
-        } else if (element.type === 'text') {
-          this.ctx.fillStyle = element.color;
-          this.ctx.font = `${element.lineWidth * 2}px Arial`;
-          this.ctx.fillText(element.text, element.x, element.y);
         }
       });
     },
@@ -499,7 +487,10 @@ export default {
     },
     sendWebSocketMessage(type, data) {
       if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+        console.log(`Sending WebSocket message: ${type}, data length: ${JSON.stringify(data).length}`);
         this.socket.send(JSON.stringify({ type, data }));
+      } else {
+        console.error('WebSocket not open, readyState:', this.socket ? this.socket.readyState : 'null');
       }
     },
     async toggleSpeechRecognition() {
@@ -739,6 +730,31 @@ export default {
       } else {
         console.log('No socket to close');
       }
+    },
+    // 节流函数
+    throttle(func, delay) {
+      let lastCall = 0;
+      return function(...args) {
+        const now = new Date().getTime();
+        if (now - lastCall < delay) {
+          return;
+        }
+        lastCall = now;
+        return func.apply(this, args);
+      };
+    },
+    // 发送橡皮操作的更新
+    sendEraserUpdate() {
+      // 发送清除消息到服务器
+      this.sendWebSocketMessage('clear', {});
+      // 重新发送所有剩余元素到服务器
+      this.elements.forEach(element => {
+        if (element.type === 'text') {
+          this.sendWebSocketMessage('text', element);
+        } else {
+          this.sendWebSocketMessage('draw', element);
+        }
+      });
     },
     // 检测两条线段是否相交
     doLinesIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
