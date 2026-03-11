@@ -165,7 +165,7 @@ export default {
               console.log('Received socketId:', this.socketId);
             } else if (data.type === 'error') {
               console.error('WebSocket error:', data.message);
-              this.showToast(data.message, 'error');
+              this.showToastMessage(data.message, 'error');
             }
           } catch (error) {
             console.error('Error processing WebSocket message:', error);
@@ -571,7 +571,7 @@ export default {
     },
     async beautifyShape() {
       if (this.drawingPoints.length < 3) {
-        this.showToast('请先绘制一个图形', 'info');
+        this.showToastMessage('请先绘制一个图形', 'info');
         return;
       }
       
@@ -624,7 +624,7 @@ export default {
             // 如果识别为pen类型，不进行美化，清除原始元素的保存
             this.originalElements = null;
             // 显示提示
-            this.showToast('无法识别为规则图形，保持原始绘制', 'info');
+            this.showToastMessage('无法识别为规则图形，保持原始绘制', 'info');
           }
         } else {
           console.error('图形美化失败:', result.error);
@@ -678,7 +678,7 @@ export default {
         }).filter(Boolean).join('\n');
         
         if (!whiteboardContent) {
-          this.showToast('白板内容为空，请先添加内容', 'info');
+          this.showToastMessage('白板内容为空，请先添加内容', 'info');
           return;
         }
         
@@ -706,7 +706,7 @@ export default {
     clearSummary() {
       this.summary = '';
     },
-    showToast(message, type = 'info') {
+    showToastMessage(message, type = 'info') {
       this.toastMessage = message;
       this.toastType = type;
       this.showToast = true;
