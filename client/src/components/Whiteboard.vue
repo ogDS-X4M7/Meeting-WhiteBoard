@@ -117,7 +117,7 @@ export default {
       try {
         // 使用传入的roomCode建立WebSocket连接
         console.log(`Setting up WebSocket connection to room ${this.roomCode}`);
-        this.socket = new WebSocket(`ws://localhost:8080?roomCode=${this.roomCode}`);
+        this.socket = new WebSocket(`ws://192.168.118.168:8080?roomCode=${this.roomCode}`);
         
         this.socket.onopen = () => {
           console.log(`WebSocket connected to room ${this.roomCode}, readyState: ${this.socket.readyState}`);
@@ -536,7 +536,7 @@ export default {
         const formData = new FormData();
         formData.append('audio', audioBlob, 'recording.wav');
         
-        const response = await fetch('http://localhost:8080/api/speech', {
+        const response = await fetch('http://192.168.118.168:8080/api/speech', {
           method: 'POST',
           body: formData
         });
@@ -579,7 +579,7 @@ export default {
         // 保存原始元素，用于撤销美化
         this.originalElements = JSON.parse(JSON.stringify(this.elements));
         
-        const response = await fetch('http://localhost:8080/api/recognize-shape', {
+        const response = await fetch('http://192.168.118.168:8080/api/recognize-shape', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -682,7 +682,7 @@ export default {
           return;
         }
         
-        const response = await fetch('http://localhost:8080/api/generate-summary', {
+        const response = await fetch('http://192.168.118.168:8080/api/generate-summary', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
