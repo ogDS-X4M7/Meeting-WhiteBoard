@@ -26,16 +26,16 @@
       <button @click="beautifyShape">美化图形</button>
       <button @click="undoBeautify" :disabled="!originalElements">撤销美化</button>
       <button @click="generateSummary">生成摘要</button>
+      <button @click="printTranscriptionHistory">打印发言内容</button>
     </div>
     <div v-if="summary" class="summary-container">
       <h4>会议摘要:</h4>
       <div class="summary-content" v-html="summary"></div>
       <button @click="clearSummary">清空摘要</button>
     </div>
-    <div v-if="transcription" class="transcription-container">
-      <h4>语音转写:</h4>
-      <p>{{ transcription }}</p>
-      <button @click="addTranscriptionToCanvas">添加到白板</button>
+    <!-- 字幕样式的转写结果展示 -->
+    <div v-if="transcription" class="subtitle-container">
+      <div class="subtitle">{{ transcription }}</div>
     </div>
     <div v-if="currentTool === 'text' && isAddingText" class="text-input-container">
       <input 
@@ -83,11 +83,14 @@ export default {
       socketId: null,
       isRecording: false,
       transcription: '',
-      mediaRecorder: null,
-      audioChunks: [],
+      audioContext: null,
+      processor: null,
+      stream: null,
       drawingPoints: [],
       summary: '',
       transcriptionHistory: [],
+      transcriptionBuffer: [], // 转录缓冲区，用于存储时间窗口内的结果
+      bufferTimer: null, // 定期检查缓冲区的定时器
       originalElements: null,
       showToast: false,
       toastMessage: '',
@@ -117,7 +120,7 @@ export default {
       try {
         // 使用传入的roomCode建立WebSocket连接
         console.log(`Setting up WebSocket connection to room ${this.roomCode}`);
-        this.socket = new WebSocket(`ws://192.168.118.168:8080?roomCode=${this.roomCode}`);
+        this.socket = new WebSocket(`ws://localhost:8080?roomCode=${this.roomCode}`);
         
         this.socket.onopen = () => {
           console.log(`WebSocket connected to room ${this.roomCode}, readyState: ${this.socket.readyState}`);
@@ -166,6 +169,28 @@ export default {
             } else if (data.type === 'error') {
               console.error('WebSocket error:', data.message);
               this.showToastMessage(data.message, 'error');
+            } else if (data.type === 'transcriptionResult') {
+              // 处理语音转写结果
+              console.log('Received transcription result:', data.data || '无内容');
+              this.transcription = data.data || '';
+              console.log('当前转写内容:', this.transcription || '无内容');
+              // 将转写结果添加到缓冲区
+              if (this.transcription) {
+                this.transcriptionBuffer.push({ text: this.transcription, timestamp: Date.now() });
+                console.log('添加到转录缓冲区:', this.transcription);
+              }
+              
+              // 延长字幕显示时间
+              if (this.transcriptionTimer) {
+                clearTimeout(this.transcriptionTimer);
+              }
+              this.transcriptionTimer = setTimeout(() => {
+                this.transcription = '';
+              }, 5000); // 5000ms = 5秒，比原来增加了1000ms
+            } else if (data.type === 'transcriptionError') {
+              // 处理语音转写错误
+              console.error('Transcription error:', data.data);
+              this.showToastMessage(data.data, 'error');
             }
           } catch (error) {
             console.error('Error processing WebSocket message:', error);
@@ -502,54 +527,138 @@ export default {
     },
     async startRecording() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        this.mediaRecorder = new MediaRecorder(stream);
-        this.audioChunks = [];
+        // 请求16kHz采样率的音频流
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            sampleSize: 16
+          }
+        });
         
-        this.mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            this.audioChunks.push(event.data);
+        // 创建音频上下文，设置采样率为16kHz
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+          sampleRate: 16000
+        });
+        const source = audioContext.createMediaStreamSource(stream);
+        
+        // 创建脚本处理器，用于获取音频数据
+        // 16kHz采样率，缓冲区大小设置为1024（最接近640的2的幂）
+        const processor = audioContext.createScriptProcessor(1024, 1, 1);
+        
+        // 发送开始转写的消息
+        this.sendWebSocketMessage('startTranscription', {});
+        
+        // 音频数据缓冲区
+        let audioBuffer = [];
+        
+        // 处理音频数据
+        processor.onaudioprocess = (event) => {
+          if (this.isRecording) {
+            const inputData = event.inputBuffer.getChannelData(0);
+            // 转换为16位PCM格式
+            const pcmData = this.float32ToInt16(inputData);
+            // 将音频数据添加到缓冲区
+            audioBuffer.push(pcmData);
           }
         };
         
-        this.mediaRecorder.onstop = async () => {
-          const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
-          await this.sendAudioToServer(audioBlob);
-        };
+        // 每400ms发送一次音频数据
+        const sendInterval = setInterval(() => {
+          if (this.isRecording && audioBuffer.length > 0 && this.socket && this.socket.readyState === WebSocket.OPEN) {
+            // 合并缓冲区中的音频数据
+            const mergedData = new Int16Array(audioBuffer.reduce((total, buffer) => total + buffer.length, 0));
+            let offset = 0;
+            audioBuffer.forEach(buffer => {
+              mergedData.set(buffer, offset);
+              offset += buffer.length;
+            });
+            
+            // 发送音频数据到服务器
+            this.socket.send(mergedData.buffer);
+            
+            // 清空缓冲区
+            audioBuffer = [];
+          }
+        }, 400);
         
-        this.mediaRecorder.start();
+        // 保存定时器ID，用于停止录音时清除
+        this.sendInterval = sendInterval;
+        
+        // 连接音频节点
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        
         this.isRecording = true;
+        this.audioContext = audioContext;
+        this.processor = processor;
+        this.stream = stream;
+        
+        // 启动缓冲区处理定时器，每3秒检查一次
+        this.bufferTimer = setInterval(() => {
+          this.mergeTranscriptionResults();
+        }, 3000);
+        
         console.log('开始录音');
+        console.log('启动转录缓冲区处理定时器');
+        
       } catch (error) {
         console.error('录音失败:', error);
+        this.showToastMessage('录音失败，请检查麦克风权限', 'error');
       }
     },
     stopRecording() {
-      if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-        this.mediaRecorder.stop();
+      if (this.isRecording) {
+        // 发送停止转写的消息
+        this.sendWebSocketMessage('stopTranscription', {});
+        
+        // 清除发送定时器
+        if (this.sendInterval) {
+          clearInterval(this.sendInterval);
+          this.sendInterval = null;
+        }
+        
+        // 关闭音频处理
+        if (this.processor) {
+          this.processor.disconnect();
+          this.processor = null;
+        }
+        
+        if (this.stream) {
+          this.stream.getTracks().forEach(track => track.stop());
+          this.stream = null;
+        }
+        
+        if (this.audioContext) {
+          this.audioContext.close();
+          this.audioContext = null;
+        }
+        
         this.isRecording = false;
+        
+        // 清除缓冲区处理定时器
+        if (this.bufferTimer) {
+          clearInterval(this.bufferTimer);
+          this.bufferTimer = null;
+          console.log('停止转录缓冲区处理定时器');
+        }
+        
+        // 最后一次合并转录结果
+        this.mergeTranscriptionResults();
+        
         console.log('停止录音');
+        
       }
     },
-    async sendAudioToServer(audioBlob) {
-      try {
-        const formData = new FormData();
-        formData.append('audio', audioBlob, 'recording.wav');
-        
-        const response = await fetch('http://192.168.118.168:8080/api/speech', {
-          method: 'POST',
-          body: formData
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-          this.transcription = result.text;
-        } else {
-          console.error('转写失败:', result.error);
-        }
-      } catch (error) {
-        console.error('发送音频失败:', error);
+    // 将float32格式的音频数据转换为int16格式
+    float32ToInt16(buffer) {
+      const length = buffer.length;
+      const result = new Int16Array(length);
+      for (let i = 0; i < length; i++) {
+        const s = Math.max(-1, Math.min(1, buffer[i]));
+        result[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
       }
+      return result;
     },
     addTranscriptionToCanvas() {
       if (this.transcription) {
@@ -579,7 +688,7 @@ export default {
         // 保存原始元素，用于撤销美化
         this.originalElements = JSON.parse(JSON.stringify(this.elements));
         
-        const response = await fetch('http://192.168.118.168:8080/api/recognize-shape', {
+        const response = await fetch('http://localhost:8080/api/recognize-shape', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -682,7 +791,7 @@ export default {
           return;
         }
         
-        const response = await fetch('http://192.168.118.168:8080/api/generate-summary', {
+        const response = await fetch('http://localhost:8080/api/generate-summary', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -705,6 +814,17 @@ export default {
     },
     clearSummary() {
       this.summary = '';
+    },
+    // 打印所有发言内容
+    printTranscriptionHistory() {
+      console.log('所有发言内容:');
+      if (this.transcriptionHistory.length > 0) {
+        this.transcriptionHistory.forEach((content, index) => {
+          console.log(`${index + 1}. ${content}`);
+        });
+      } else {
+        console.log('暂无发言内容');
+      }
     },
     showToastMessage(message, type = 'info') {
       this.toastMessage = message;
@@ -730,6 +850,96 @@ export default {
       } else {
         console.log('No socket to close');
       }
+    },
+    // 合并缓冲区中的转录结果
+    mergeTranscriptionResults() {
+      if (this.transcriptionBuffer.length === 0) return;
+      
+      // 按时间排序
+      this.transcriptionBuffer.sort((a, b) => a.timestamp - b.timestamp);
+      
+      // 提取所有非空文本
+      const texts = this.transcriptionBuffer.map(item => item.text).filter(text => text.trim() !== '');
+      
+      if (texts.length === 0) {
+        // 清空缓冲区
+        this.transcriptionBuffer = [];
+        return;
+      }
+      
+      // 去除前缀重复的内容，只保留最长的版本
+      const uniqueTexts = this.removePrefixDuplicates(texts);
+      
+      // 将去重后的结果添加到历史记录
+      uniqueTexts.forEach(text => {
+        // 检查是否与历史记录最后一条完全重复
+        if (this.transcriptionHistory.length === 0) {
+          // 如果历史记录为空，直接添加
+          this.transcriptionHistory.push(text);
+          console.log('添加到转录历史:', text);
+        } else {
+          const lastText = this.transcriptionHistory[this.transcriptionHistory.length - 1];
+          
+          // 检查当前文本是否是历史记录最后一条的前缀
+          if (this.isPrefixWithPunctuation(text, lastText)) {
+            // 如果是前缀，不添加
+            console.log('当前文本是历史记录最后一条的前缀，不添加:', text);
+          } 
+          // 检查历史记录最后一条是否是当前文本的前缀
+          else if (this.isPrefixWithPunctuation(lastText, text)) {
+            // 如果是前缀，替换历史记录最后一条
+            this.transcriptionHistory[this.transcriptionHistory.length - 1] = text;
+            console.log('替换历史记录最后一条:', text);
+          } 
+          // 如果不是前缀关系，且不完全重复，添加到历史记录
+          else if (lastText !== text) {
+            this.transcriptionHistory.push(text);
+            console.log('添加到转录历史:', text);
+          }
+        }
+      });
+      
+      // 清空缓冲区
+      this.transcriptionBuffer = [];
+    },
+    
+    // 去除前缀重复的内容，只保留最长的版本
+    removePrefixDuplicates(texts) {
+      if (texts.length <= 1) return texts;
+      
+      // 按长度降序排序
+      texts.sort((a, b) => b.length - a.length);
+      
+      const uniqueTexts = [];
+      
+      for (let i = 0; i < texts.length; i++) {
+        const currentText = texts[i];
+        let isPrefix = false;
+        
+        // 检查是否是已添加文本的前缀（忽略开头的标点符号）
+        for (let j = 0; j < uniqueTexts.length; j++) {
+          if (this.isPrefixWithPunctuation(currentText, uniqueTexts[j])) {
+            isPrefix = true;
+            break;
+          }
+        }
+        
+        if (!isPrefix) {
+          uniqueTexts.push(currentText);
+        }
+      }
+      
+      return uniqueTexts;
+    },
+    
+    // 检查text1是否是text2的前缀（忽略所有标点符号）
+    isPrefixWithPunctuation(text1, text2) {
+      // 去除所有标点符号和空白字符
+      const cleanText1 = text1.replace(/[\p{P}\s]+/gu, '');
+      const cleanText2 = text2.replace(/[\p{P}\s]+/gu, '');
+      
+      // 检查cleanText1是否是cleanText2的前缀
+      return cleanText2.startsWith(cleanText1);
     },
     // 节流函数
     throttle(func, delay) {
@@ -951,6 +1161,29 @@ input[type="range"] {
   background-color: #f56c6c;
 }
 
+/* 字幕样式 */
+.subtitle-container {
+  position: fixed;
+  bottom: 100px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 999;
+}
+
+.subtitle {
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-size: 16px;
+  max-width: 80%;
+  text-align: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  animation: fadeIn 0.5s ease-out;
+}
+
 @keyframes slideIn {
   from {
     transform: translateX(100%);
@@ -959,6 +1192,17 @@ input[type="range"] {
   to {
     transform: translateX(0);
     opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 </style>

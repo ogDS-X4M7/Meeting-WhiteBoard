@@ -346,73 +346,146 @@ server.on('upgrade', (req, socket, head) => {
   const socketIdMessage = JSON.stringify({ type: 'socketId', data: socket.id });
   sendWebSocketMessage(socket, socketIdMessage);
 
+  // 存储语音转写服务实例
+  let speechService = null;
+
   // 处理消息
   socket.on('data', (data) => {
     try {
+      // 检查是否是二进制数据（音频数据）
+      if (Buffer.isBuffer(data) && data.length > 0) {
+        const firstByte = data[0];
+        const opCode = firstByte & 0x0F;
+        console.log('收到数据，长度:', data.length, 'opCode:', opCode);
+        // WebSocket二进制消息的opCode是2
+        if (opCode === 2) {
+          // 处理音频数据
+          if (speechService && speechService.isConnected) {
+            console.log('收到音频数据，长度:', data.length);
+            console.log('音频数据前10个字节:', data.slice(0, 10).toString('hex'));
+            speechService.sendAudio(data);
+            console.log('音频数据已发送到讯飞API');
+          } else {
+            console.log('音频数据已收到，但语音服务未连接');
+          }
+          return;
+        } else {
+          console.log('收到非音频数据，opCode:', opCode);
+        }
+      }
+
       // 简单的WebSocket消息解析（仅处理文本消息）
       const message = parseWebSocketMessage(data);
-      if (message) {
-        const parsedData = JSON.parse(message);
+      if (message && message !== 'undefined') {
+        try {
+          const parsedData = JSON.parse(message);
 
-        if (parsedData.type === 'draw') {
-          // 更新会议室画布状态
-          const currentState = meetingRoomManager.getCanvasState(roomCode);
-          currentState.push(parsedData.data);
-          meetingRoomManager.updateCanvasState(roomCode, currentState);
+          if (parsedData.type === 'draw') {
+            // 更新会议室画布状态
+            const currentState = meetingRoomManager.getCanvasState(roomCode);
+            currentState.push(parsedData.data);
+            meetingRoomManager.updateCanvasState(roomCode, currentState);
 
-          // 广播给同一会议室的其他用户
-          meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'draw', data: parsedData.data }), socket.id);
-        } else if (parsedData.type === 'text') {
-          // 更新会议室画布状态
-          const currentState = meetingRoomManager.getCanvasState(roomCode);
-          currentState.push(parsedData.data);
-          meetingRoomManager.updateCanvasState(roomCode, currentState);
+            // 广播给同一会议室的其他用户
+            meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'draw', data: parsedData.data }), socket.id);
+          } else if (parsedData.type === 'text') {
+            // 更新会议室画布状态
+            const currentState = meetingRoomManager.getCanvasState(roomCode);
+            currentState.push(parsedData.data);
+            meetingRoomManager.updateCanvasState(roomCode, currentState);
 
-          // 广播给同一会议室的其他用户
-          meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'text', data: parsedData.data }), socket.id);
-        } else if (parsedData.type === 'clear') {
-          // 清空会议室画布状态
-          meetingRoomManager.updateCanvasState(roomCode, []);
+            // 广播给同一会议室的其他用户
+            meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'text', data: parsedData.data }), socket.id);
+          } else if (parsedData.type === 'clear') {
+            // 清空会议室画布状态
+            meetingRoomManager.updateCanvasState(roomCode, []);
 
-          // 广播给同一会议室的其他用户
-          meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'clear' }), socket.id);
-        } else if (parsedData.type === 'canvasState') {
-          // 更新会议室画布状态
-          console.log(`Received canvasState from socket ${socket.id} in room ${roomCode}, elements length: ${parsedData.data.length}`);
-          meetingRoomManager.updateCanvasState(roomCode, parsedData.data);
+            // 广播给同一会议室的其他用户
+            meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'clear' }), socket.id);
+          } else if (parsedData.type === 'canvasState') {
+            // 更新会议室画布状态
+            console.log(`Received canvasState from socket ${socket.id} in room ${roomCode}, elements length: ${parsedData.data.length}`);
+            meetingRoomManager.updateCanvasState(roomCode, parsedData.data);
 
-          // 广播给同一会议室的其他用户
-          console.log(`Broadcasting canvasState to room ${roomCode}, excluding socket ${socket.id}`);
-          meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'canvasState', data: parsedData.data }), socket.id);
-        } else if (parsedData.type === 'beautify') {
-          // 处理美化操作
-          const { strokeId, newElement } = parsedData.data;
+            // 广播给同一会议室的其他用户
+            console.log(`Broadcasting canvasState to room ${roomCode}, excluding socket ${socket.id}`);
+            meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'canvasState', data: parsedData.data }), socket.id);
+          } else if (parsedData.type === 'beautify') {
+            // 处理美化操作
+            const { strokeId, newElement } = parsedData.data;
 
-          // 更新会议室画布状态
-          const currentState = meetingRoomManager.getCanvasState(roomCode);
+            // 更新会议室画布状态
+            const currentState = meetingRoomManager.getCanvasState(roomCode);
 
-          // 移除与当前绘制相关的所有pen元素（使用strokeId）
-          let updatedState;
-          if (strokeId) {
-            updatedState = currentState.filter(element => !(element.type === 'pen' && element.strokeId === strokeId));
-          } else {
-            // 如果没有strokeId，尝试移除最后一个pen元素
-            const penElements = currentState.filter(element => element.type === 'pen');
-            const lastPenElement = penElements[penElements.length - 1];
-
-            if (lastPenElement) {
-              updatedState = currentState.filter(element => element !== lastPenElement);
+            // 移除与当前绘制相关的所有pen元素（使用strokeId）
+            let updatedState;
+            if (strokeId) {
+              updatedState = currentState.filter(element => !(element.type === 'pen' && element.strokeId === strokeId));
             } else {
-              updatedState = [...currentState];
+              // 如果没有strokeId，尝试移除最后一个pen元素
+              const penElements = currentState.filter(element => element.type === 'pen');
+              const lastPenElement = penElements[penElements.length - 1];
+
+              if (lastPenElement) {
+                updatedState = currentState.filter(element => element !== lastPenElement);
+              } else {
+                updatedState = [...currentState];
+              }
+            }
+
+            // 添加美化后的元素
+            updatedState.push(newElement);
+            meetingRoomManager.updateCanvasState(roomCode, updatedState);
+
+            // 广播美化操作给同一会议室的其他用户
+            meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'beautify', data: parsedData.data }), socket.id);
+          } else if (parsedData.type === 'startTranscription') {
+            // 开始语音转写
+            if (!speechService) {
+              speechService = new SpeechService();
+            }
+
+            // 启动定时器，每5秒检查一次是否有转写结果
+            const transcriptionTimer = setInterval(() => {
+              // 发送空结果
+              sendWebSocketMessage(socket, JSON.stringify({ type: 'transcriptionResult', data: '' }));
+            }, 5000);
+
+            speechService.connect(
+              (text) => {
+                // 发送转写结果给客户端
+                sendWebSocketMessage(socket, JSON.stringify({ type: 'transcriptionResult', data: text }));
+              },
+              (error) => {
+                console.error('Speech service error:', error);
+                sendWebSocketMessage(socket, JSON.stringify({ type: 'transcriptionError', data: error.message }));
+                // 清除定时器
+                clearInterval(transcriptionTimer);
+              },
+              () => {
+                console.log('Speech service closed');
+                // 清除定时器
+                clearInterval(transcriptionTimer);
+              }
+            );
+          } else if (parsedData.type === 'stopTranscription') {
+            // 停止语音转写
+            if (speechService) {
+              speechService.sendEnd();
+              // 不需要立即关闭连接，等待服务端返回最终结果
+
+              // 设置一个定时器，如果5秒后还没有收到转写结果，发送空结果
+              setTimeout(() => {
+                // 检查是否已经收到过转写结果
+                if (speechService) {
+                  // 发送空结果
+                  sendWebSocketMessage(socket, JSON.stringify({ type: 'transcriptionResult', data: '' }));
+                }
+              }, 5000);
             }
           }
-
-          // 添加美化后的元素
-          updatedState.push(newElement);
-          meetingRoomManager.updateCanvasState(roomCode, updatedState);
-
-          // 广播美化操作给同一会议室的其他用户
-          meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'beautify', data: parsedData.data }), socket.id);
+        } catch (error) {
+          console.error('Error parsing JSON message:', error);
         }
       }
     } catch (error) {
@@ -421,6 +494,12 @@ server.on('upgrade', (req, socket, head) => {
   });
 
   socket.on('close', () => {
+    // 关闭语音转写服务
+    if (speechService) {
+      speechService.close();
+      speechService = null;
+    }
+
     // 从会议室中移除用户
     if (socket.roomCode) {
       console.log(`User disconnecting from room ${socket.roomCode}`);
@@ -464,37 +543,42 @@ function sendWebSocketMessage(socket, message) {
 
 // 解析WebSocket消息
 function parseWebSocketMessage(data) {
-  const firstByte = data[0];
-  const isFinal = (firstByte & 0x80) !== 0;
-  const opCode = firstByte & 0x0F;
+  try {
+    const firstByte = data[0];
+    const isFinal = (firstByte & 0x80) !== 0;
+    const opCode = firstByte & 0x0F;
 
-  if (opCode !== 1) return null; // 仅处理文本消息
+    if (opCode !== 1) return null; // 仅处理文本消息
 
-  const secondByte = data[1];
-  const isMasked = (secondByte & 0x80) !== 0;
-  let payloadLength = secondByte & 0x7F;
-  let offset = 2;
+    const secondByte = data[1];
+    const isMasked = (secondByte & 0x80) !== 0;
+    let payloadLength = secondByte & 0x7F;
+    let offset = 2;
 
-  if (payloadLength === 126) {
-    payloadLength = data.readUInt16BE(offset);
-    offset += 2;
-  } else if (payloadLength === 127) {
-    payloadLength = Number(data.readBigUInt64BE(offset));
-    offset += 8;
-  }
-
-  if (isMasked) {
-    const mask = data.slice(offset, offset + 4);
-    offset += 4;
-    const payload = data.slice(offset, offset + payloadLength);
-
-    for (let i = 0; i < payload.length; i++) {
-      payload[i] ^= mask[i % 4];
+    if (payloadLength === 126) {
+      payloadLength = data.readUInt16BE(offset);
+      offset += 2;
+    } else if (payloadLength === 127) {
+      payloadLength = Number(data.readBigUInt64BE(offset));
+      offset += 8;
     }
 
-    return payload.toString('utf8');
-  } else {
-    return data.slice(offset, offset + payloadLength).toString('utf8');
+    if (isMasked) {
+      const mask = data.slice(offset, offset + 4);
+      offset += 4;
+      const payload = data.slice(offset, offset + payloadLength);
+
+      for (let i = 0; i < payload.length; i++) {
+        payload[i] ^= mask[i % 4];
+      }
+
+      return payload.toString('utf8');
+    } else {
+      return data.slice(offset, offset + payloadLength).toString('utf8');
+    }
+  } catch (error) {
+    console.error('Error parsing WebSocket message:', error);
+    return null;
   }
 }
 

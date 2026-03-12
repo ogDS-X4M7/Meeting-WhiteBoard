@@ -65,7 +65,7 @@ export default {
     async createMeeting() {
       try {
         this.errorMessage = ''
-        const response = await fetch('http://192.168.118.168:8080/api/create-meeting', {
+        const response = await fetch('http://localhost:8080/api/create-meeting', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -92,7 +92,7 @@ export default {
     async joinMeeting() {
       try {
         this.errorMessage = ''
-        const response = await fetch('http://192.168.118.168:8080/api/join-meeting', {
+        const response = await fetch('http://localhost:8080/api/join-meeting', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -124,7 +124,7 @@ export default {
         const socketId = this.$refs.whiteboard ? this.$refs.whiteboard.socketId : null;
         if (socketId) {
           // 发送请求到服务器，告诉服务器用户要离开会议
-          const response = await fetch('http://192.168.118.168:8080/api/leave-meeting', {
+          const response = await fetch('http://localhost:8080/api/leave-meeting', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
