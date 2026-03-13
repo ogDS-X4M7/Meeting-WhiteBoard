@@ -96,7 +96,10 @@ export default {
       toastMessage: '',
       toastType: 'info',
       strokeId: 0,
-      currentStrokeId: null
+      currentStrokeId: null,
+      // 音频播放相关
+      playbackAudioContext: null,
+      audioDestination: null
     };
   },
   mounted() {
@@ -128,6 +131,24 @@ export default {
         
         this.socket.onmessage = (event) => {
           try {
+            // 检查是否是二进制数据（音频数据）
+            if (event.data instanceof ArrayBuffer) {
+              console.log('Received audio data as ArrayBuffer, length:', event.data.byteLength);
+              // 处理音频数据
+              this.playAudioData(new Int16Array(event.data));
+              return;
+            } else if (event.data instanceof Blob) {
+              console.log('Received audio data as Blob, size:', event.data.size);
+              // 将 Blob 转换为 ArrayBuffer
+              event.data.arrayBuffer().then(arrayBuffer => {
+                console.log('Blob converted to ArrayBuffer, length:', arrayBuffer.byteLength);
+                this.playAudioData(new Int16Array(arrayBuffer));
+              }).catch(error => {
+                console.error('Error converting Blob to ArrayBuffer:', error);
+              });
+              return;
+            }
+            
             console.log('Received WebSocket message:', event.data);
             const data = JSON.parse(event.data);
             if (data.type === 'canvasState') {
@@ -940,6 +961,45 @@ export default {
       
       // 检查cleanText1是否是cleanText2的前缀
       return cleanText2.startsWith(cleanText1);
+    },
+    
+    // 初始化音频播放上下文
+    initAudioPlayback() {
+      if (!this.playbackAudioContext) {
+        this.playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)({
+          sampleRate: 16000
+        });
+        this.audioDestination = this.playbackAudioContext.destination;
+        console.log('Audio playback initialized');
+      }
+    },
+    
+    // 播放音频数据
+    playAudioData(audioData) {
+      try {
+        console.log('Received audio data for playback, length:', audioData.length);
+        console.log('Audio data sample values:', audioData.slice(0, 10));
+        
+        this.initAudioPlayback();
+        
+        // 创建音频缓冲区
+        const buffer = this.playbackAudioContext.createBuffer(1, audioData.length, 16000);
+        const channelData = buffer.getChannelData(0);
+        
+        // 将 Int16Array 转换为 Float32Array
+        for (let i = 0; i < audioData.length; i++) {
+          channelData[i] = audioData[i] / 32768; // 转换为 [-1, 1] 范围
+        }
+        
+        // 创建音频源并播放
+        const source = this.playbackAudioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(this.audioDestination);
+        source.start();
+        console.log('Audio data played successfully');
+      } catch (error) {
+        console.error('Error playing audio data:', error);
+      }
     },
     // 节流函数
     throttle(func, delay) {

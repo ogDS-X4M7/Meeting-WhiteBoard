@@ -153,7 +153,12 @@ class MeetingRoomManager {
         const socket = clients.find(client => client.id === member.socketId);
         if (socket) {
           console.log(`Sending message to socket ${member.socketId}`);
-          sendWebSocketMessage(socket, message);
+          // 检查消息类型，如果是二进制数据，使用 WebSocket 二进制消息格式发送
+          if (Buffer.isBuffer(message)) {
+            sendWebSocketBinaryMessage(socket, message);
+          } else {
+            sendWebSocketMessage(socket, message);
+          }
         } else {
           console.log(`Socket ${member.socketId} not found`);
         }
@@ -368,6 +373,9 @@ server.on('upgrade', (req, socket, head) => {
           } else {
             console.log('音频数据已收到，但语音服务未连接');
           }
+
+          // 转发音频数据给会议室中的其他客户端
+          meetingRoomManager.broadcastToRoom(roomCode, data, socket.id);
           return;
         } else {
           console.log('收到非音频数据，opCode:', opCode);
@@ -538,6 +546,32 @@ function sendWebSocketMessage(socket, message) {
   }
 
   buffer.write(message, length < 126 ? 2 : length < 65536 ? 4 : 10);
+  socket.write(buffer);
+}
+
+// 发送WebSocket二进制消息
+function sendWebSocketBinaryMessage(socket, binaryData) {
+  const length = binaryData.length;
+  let buffer;
+
+  if (length < 126) {
+    buffer = Buffer.alloc(2 + length);
+    buffer[0] = 0x82; // 二进制消息，FIN=1
+    buffer[1] = length;
+  } else if (length < 65536) {
+    buffer = Buffer.alloc(4 + length);
+    buffer[0] = 0x82;
+    buffer[1] = 126;
+    buffer.writeUInt16BE(length, 2);
+  } else {
+    buffer = Buffer.alloc(10 + length);
+    buffer[0] = 0x82;
+    buffer[1] = 127;
+    buffer.writeBigUInt64BE(BigInt(length), 2);
+  }
+
+  // 复制二进制数据到缓冲区
+  binaryData.copy(buffer, length < 126 ? 2 : length < 65536 ? 4 : 10);
   socket.write(buffer);
 }
 
