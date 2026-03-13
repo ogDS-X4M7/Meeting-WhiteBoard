@@ -51,7 +51,8 @@ class MeetingRoomManager {
       code,
       createdAt: new Date(),
       members: [],
-      canvasState: []
+      canvasState: [],
+      beautifyState: null
     };
     this.rooms.set(code, room);
     return room;
@@ -74,7 +75,8 @@ class MeetingRoomManager {
         code,
         createdAt: new Date(),
         members: [],
-        canvasState: []
+        canvasState: [],
+        beautifyState: null
       };
       this.rooms.set(code, room);
     } else if (!room) {
@@ -83,7 +85,8 @@ class MeetingRoomManager {
         code,
         createdAt: new Date(),
         members: [],
-        canvasState: []
+        canvasState: [],
+        beautifyState: null
       };
       this.rooms.set(code, room);
       console.log(`Meeting room ${code} created for new join`);
@@ -426,6 +429,18 @@ server.on('upgrade', (req, socket, head) => {
             // 更新会议室画布状态
             const currentState = meetingRoomManager.getCanvasState(roomCode);
 
+            // 保存原始状态，用于撤销美化
+            if (strokeId) {
+              // 保存原始状态到会议室对象中
+              const room = meetingRoomManager.getRoom(roomCode);
+              if (room) {
+                room.beautifyState = {
+                  originalState: [...currentState],
+                  strokeId: strokeId
+                };
+              }
+            }
+
             // 移除与当前绘制相关的所有pen元素（使用strokeId）
             let updatedState;
             if (strokeId) {
@@ -517,6 +532,26 @@ server.on('upgrade', (req, socket, head) => {
                   sendWebSocketMessage(socket, JSON.stringify({ type: 'nicknameUpdated', data: nickname }));
                 }
               }
+            }
+          } else if (parsedData.type === 'undoBeautify') {
+            // 处理撤销美化操作
+            console.log(`Received undoBeautify from socket ${socket.id} in room ${roomCode}`);
+
+            // 获取会议室对象
+            const room = meetingRoomManager.getRoom(roomCode);
+            if (room && room.beautifyState) {
+              // 恢复到之前保存的原始状态
+              const originalState = room.beautifyState.originalState;
+              meetingRoomManager.updateCanvasState(roomCode, originalState);
+
+              // 清除保存的美化状态
+              room.beautifyState = null;
+
+              // 广播canvasState消息给同一会议室的其他用户
+              console.log(`Broadcasting canvasState to room ${roomCode}, excluding socket ${socket.id}`);
+              meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'canvasState', data: originalState }), socket.id);
+            } else {
+              console.log('No beautify state found for room', roomCode);
             }
           }
         } catch (error) {

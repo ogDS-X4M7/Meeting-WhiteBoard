@@ -248,6 +248,14 @@ export default {
               // 处理语音转写错误
               console.error('Transcription error:', data.data);
               this.showToastMessage(data.data, 'error');
+            } else if (data.type === 'undoBeautify') {
+              // 处理撤销美化操作
+              console.log('Received undoBeautify message:', data.data);
+              // 撤销美化操作，移除美化后的元素，恢复原始状态
+              // 由于我们没有保存原始状态，这里需要重新获取画布状态
+              // 服务器会广播canvasState消息，所以这里不需要做任何操作
+              // 只需要等待canvasState消息即可
+              console.log('Received undoBeautify instruction, waiting for canvasState update');
             }
           } catch (error) {
             console.error('Error processing WebSocket message:', error);
@@ -287,9 +295,9 @@ export default {
         }, 100);
       } else {
         this.isDrawing = true;
-        // 为每一笔分配一个唯一的strokeId
+        // 为每一笔分配一个唯一的strokeId，使用socketId作为前缀
         this.strokeId++;
-        this.currentStrokeId = this.strokeId;
+        this.currentStrokeId = `${this.socketId}_${this.strokeId}`;
       }
     },
     draw(e) {
@@ -746,8 +754,11 @@ export default {
       }
       
       try {
-        // 保存原始元素，用于撤销美化
-        this.originalElements = JSON.parse(JSON.stringify(this.elements));
+        // 保存原始元素和当前strokeId，用于撤销美化
+        this.originalElements = {
+          elements: JSON.parse(JSON.stringify(this.elements)),
+          strokeId: this.currentStrokeId
+        };
         
         const response = await fetch('http://192.168.118.168:8080/api/recognize-shape', {
           method: 'POST',
@@ -814,13 +825,14 @@ export default {
         console.log('用户确认状态:', userConfirmed);
         if (userConfirmed) {
           // 恢复原始元素
-          this.elements = this.originalElements;
+          this.elements = this.originalElements.elements;
           // 清空原始元素的保存
+          const strokeId = this.originalElements.strokeId;
           this.originalElements = null;
           // 重新绘制画布
           this.redrawCanvas();
-          // 发送完整的画布状态到服务器
-          this.sendWebSocketMessage('canvasState', this.elements);
+          // 发送撤销美化指令到服务器，包含strokeId
+          this.sendWebSocketMessage('undoBeautify', { strokeId });
           console.log('已执行撤销美化操作');
         } else {
           console.log('用户取消了撤销美化操作');
