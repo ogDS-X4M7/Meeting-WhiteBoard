@@ -99,7 +99,8 @@ class MeetingRoomManager {
     const member = {
       id: `user_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       socketId,
-      joinedAt: new Date()
+      joinedAt: new Date(),
+      nickname: `用户${Math.floor(Math.random() * 1000)}`
     };
     room.members.push(member);
     return room;
@@ -462,7 +463,17 @@ server.on('upgrade', (req, socket, head) => {
             speechService.connect(
               (text) => {
                 // 发送转写结果给客户端
-                sendWebSocketMessage(socket, JSON.stringify({ type: 'transcriptionResult', data: text }));
+                const room = meetingRoomManager.getRoom(roomCode);
+                if (room) {
+                  const member = room.members.find(m => m.socketId === socket.id);
+                  const nickname = member ? member.nickname : '未知用户';
+                  // 广播转写结果给同一会议室的所有客户端
+                  meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
+                    type: 'transcriptionResult',
+                    data: text,
+                    speaker: nickname
+                  }));
+                }
               },
               (error) => {
                 console.error('Speech service error:', error);
@@ -490,6 +501,22 @@ server.on('upgrade', (req, socket, head) => {
                   sendWebSocketMessage(socket, JSON.stringify({ type: 'transcriptionResult', data: '' }));
                 }
               }, 5000);
+            }
+          } else if (parsedData.type === 'updateNickname') {
+            // 更新用户昵称
+            const { nickname } = parsedData.data;
+            if (nickname) {
+              // 找到当前用户
+              const room = meetingRoomManager.getRoom(roomCode);
+              if (room) {
+                const member = room.members.find(m => m.socketId === socket.id);
+                if (member) {
+                  member.nickname = nickname;
+                  console.log(`User ${socket.id} updated nickname to ${nickname}`);
+                  // 发送确认消息给客户端
+                  sendWebSocketMessage(socket, JSON.stringify({ type: 'nicknameUpdated', data: nickname }));
+                }
+              }
             }
           }
         } catch (error) {

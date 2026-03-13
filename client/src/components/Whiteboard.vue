@@ -27,15 +27,27 @@
       <button @click="undoBeautify" :disabled="!originalElements">撤销美化</button>
       <button @click="generateSummary">生成摘要</button>
       <button @click="printTranscriptionHistory">打印发言内容</button>
+      <div class="nickname-container">
+        <span v-if="!showNicknameInput">{{ nickname }} <button @click="showNicknameInput = true">修改</button></span>
+        <div v-else class="nickname-input">
+          <input v-model="nickname" @keyup.enter="saveNickname" @blur="saveNickname" placeholder="输入昵称" />
+          <button @click="saveNickname">保存</button>
+          <button @click="showNicknameInput = false">取消</button>
+        </div>
+      </div>
     </div>
     <div v-if="summary" class="summary-container">
       <h4>会议摘要:</h4>
       <div class="summary-content" v-html="summary"></div>
       <button @click="clearSummary">清空摘要</button>
     </div>
-    <!-- 字幕样式的转写结果展示 -->
-    <div v-if="transcription" class="subtitle-container">
-      <div class="subtitle">{{ transcription }}</div>
+    <!-- 多用户字幕样式的转写结果展示 -->
+    <div class="multi-subtitle-container">
+      <div v-for="(transcription, speaker) in userTranscriptions" :key="speaker" class="subtitle-container">
+        <div class="subtitle">
+          <span class="speaker-name">{{ speaker }}:</span> {{ transcription }}
+        </div>
+      </div>
     </div>
     <div v-if="currentTool === 'text' && isAddingText" class="text-input-container">
       <input 
@@ -99,7 +111,15 @@ export default {
       currentStrokeId: null,
       // 音频播放相关
       playbackAudioContext: null,
-      audioDestination: null
+      audioDestination: null,
+      // 参会人员昵称
+      nickname: localStorage.getItem('nickname') || `用户${Math.floor(Math.random() * 1000)}`,
+      showNicknameInput: false,
+      // 转写发言人
+      transcriptionSpeaker: '',
+      // 多用户字幕显示
+      userTranscriptions: {}, // 存储每个用户的转录结果
+      transcriptionTimers: {} // 存储每个用户的字幕显示定时器
     };
   },
   mounted() {
@@ -127,6 +147,8 @@ export default {
         
         this.socket.onopen = () => {
           console.log(`WebSocket connected to room ${this.roomCode}, readyState: ${this.socket.readyState}`);
+          // 发送昵称信息到服务器
+          this.sendWebSocketMessage('updateNickname', { nickname: this.nickname });
         };
         
         this.socket.onmessage = (event) => {
@@ -192,22 +214,36 @@ export default {
               this.showToastMessage(data.message, 'error');
             } else if (data.type === 'transcriptionResult') {
               // 处理语音转写结果
-              console.log('Received transcription result:', data.data || '无内容');
-              this.transcription = data.data || '';
-              console.log('当前转写内容:', this.transcription || '无内容');
+              console.log('Received transcription result:', data.data || '无内容', 'from:', data.speaker || '未知');
+              const speaker = data.speaker || '未知';
+              const transcription = data.data || '';
+              console.log('当前转写内容:', transcription || '无内容', '发言人:', speaker);
+              
               // 将转写结果添加到缓冲区
-              if (this.transcription) {
-                this.transcriptionBuffer.push({ text: this.transcription, timestamp: Date.now() });
-                console.log('添加到转录缓冲区:', this.transcription);
+              if (transcription) {
+                this.transcriptionBuffer.push({ text: transcription, speaker: speaker, timestamp: Date.now() });
+                console.log('添加到转录缓冲区:', transcription, '发言人:', speaker);
               }
               
-              // 延长字幕显示时间
-              if (this.transcriptionTimer) {
-                clearTimeout(this.transcriptionTimer);
+              // 更新用户转录结果
+              if (transcription) {
+                this.userTranscriptions[speaker] = transcription;
+                
+                // 清除之前的定时器
+                if (this.transcriptionTimers[speaker]) {
+                  clearTimeout(this.transcriptionTimers[speaker]);
+                }
+                
+                // 设置新的定时器，5秒后清除该用户的字幕
+                this.transcriptionTimers[speaker] = setTimeout(() => {
+                  delete this.userTranscriptions[speaker];
+                  delete this.transcriptionTimers[speaker];
+                }, 5000); // 5000ms = 5秒
               }
-              this.transcriptionTimer = setTimeout(() => {
-                this.transcription = '';
-              }, 5000); // 5000ms = 5秒，比原来增加了1000ms
+            } else if (data.type === 'nicknameUpdated') {
+              // 昵称更新确认
+              console.log('Nickname updated:', data.data);
+              this.showToastMessage(`昵称已更新为: ${data.data}`, 'success');
             } else if (data.type === 'transcriptionError') {
               // 处理语音转写错误
               console.error('Transcription error:', data.data);
@@ -548,6 +584,10 @@ export default {
     },
     async startRecording() {
       try {
+        // 检查浏览器是否支持媒体设备API
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('浏览器不支持媒体设备API');
+        }
         // 请求16kHz采样率的音频流
         const stream = await navigator.mediaDevices.getUserMedia({ 
           audio: {
@@ -819,7 +859,12 @@ export default {
           },
           body: JSON.stringify({
             whiteboardContent,
-            transcriptionHistory: this.transcriptionHistory.join('\n')
+            transcriptionHistory: this.transcriptionHistory.map(item => {
+              if (typeof item === 'object' && item.text) {
+                return `${item.speaker}: ${item.text}`;
+              }
+              return item;
+            }).join('\n')
           })
         });
         
@@ -836,12 +881,25 @@ export default {
     clearSummary() {
       this.summary = '';
     },
+    // 保存昵称
+    saveNickname() {
+      if (this.nickname) {
+        localStorage.setItem('nickname', this.nickname);
+        // 发送昵称更新消息到服务器
+        this.sendWebSocketMessage('updateNickname', { nickname: this.nickname });
+        this.showNicknameInput = false;
+      }
+    },
     // 打印所有发言内容
     printTranscriptionHistory() {
       console.log('所有发言内容:');
       if (this.transcriptionHistory.length > 0) {
         this.transcriptionHistory.forEach((content, index) => {
-          console.log(`${index + 1}. ${content}`);
+          if (typeof content === 'object' && content.text) {
+            console.log(`${index + 1}. ${content.speaker}: ${content.text}`);
+          } else {
+            console.log(`${index + 1}. ${content}`);
+          }
         });
       } else {
         console.log('暂无发言内容');
@@ -879,46 +937,60 @@ export default {
       // 按时间排序
       this.transcriptionBuffer.sort((a, b) => a.timestamp - b.timestamp);
       
-      // 提取所有非空文本
-      const texts = this.transcriptionBuffer.map(item => item.text).filter(text => text.trim() !== '');
-      
-      if (texts.length === 0) {
-        // 清空缓冲区
-        this.transcriptionBuffer = [];
-        return;
-      }
-      
-      // 去除前缀重复的内容，只保留最长的版本
-      const uniqueTexts = this.removePrefixDuplicates(texts);
-      
-      // 将去重后的结果添加到历史记录
-      uniqueTexts.forEach(text => {
-        // 检查是否与历史记录最后一条完全重复
-        if (this.transcriptionHistory.length === 0) {
-          // 如果历史记录为空，直接添加
-          this.transcriptionHistory.push(text);
-          console.log('添加到转录历史:', text);
-        } else {
-          const lastText = this.transcriptionHistory[this.transcriptionHistory.length - 1];
-          
-          // 检查当前文本是否是历史记录最后一条的前缀
-          if (this.isPrefixWithPunctuation(text, lastText)) {
-            // 如果是前缀，不添加
-            console.log('当前文本是历史记录最后一条的前缀，不添加:', text);
-          } 
-          // 检查历史记录最后一条是否是当前文本的前缀
-          else if (this.isPrefixWithPunctuation(lastText, text)) {
-            // 如果是前缀，替换历史记录最后一条
-            this.transcriptionHistory[this.transcriptionHistory.length - 1] = text;
-            console.log('替换历史记录最后一条:', text);
-          } 
-          // 如果不是前缀关系，且不完全重复，添加到历史记录
-          else if (lastText !== text) {
-            this.transcriptionHistory.push(text);
-            console.log('添加到转录历史:', text);
+      // 按发言人分组
+      const groupedBySpeaker = {};
+      this.transcriptionBuffer.forEach(item => {
+        if (item.text && item.text.trim() !== '') {
+          if (!groupedBySpeaker[item.speaker]) {
+            groupedBySpeaker[item.speaker] = [];
           }
+          groupedBySpeaker[item.speaker].push(item.text);
         }
       });
+      
+      // 处理每个发言人的转录结果
+      for (const speaker in groupedBySpeaker) {
+        const texts = groupedBySpeaker[speaker];
+        // 去除前缀重复的内容，只保留最长的版本
+        const uniqueTexts = this.removePrefixDuplicates(texts);
+        
+        // 将去重后的结果添加到历史记录
+        uniqueTexts.forEach(text => {
+          const transcriptionItem = { speaker, text };
+          // 检查是否与历史记录最后一条完全重复
+          if (this.transcriptionHistory.length === 0) {
+            // 如果历史记录为空，直接添加
+            this.transcriptionHistory.push(transcriptionItem);
+            console.log('添加到转录历史:', transcriptionItem);
+          } else {
+            const lastItem = this.transcriptionHistory[this.transcriptionHistory.length - 1];
+            
+            // 检查是否是同一个发言人
+            if (lastItem.speaker === speaker) {
+              // 检查当前文本是否是历史记录最后一条的前缀
+              if (this.isPrefixWithPunctuation(text, lastItem.text)) {
+                // 如果是前缀，不添加
+                console.log('当前文本是历史记录最后一条的前缀，不添加:', text);
+              } 
+              // 检查历史记录最后一条是否是当前文本的前缀
+              else if (this.isPrefixWithPunctuation(lastItem.text, text)) {
+                // 如果是前缀，替换历史记录最后一条
+                this.transcriptionHistory[this.transcriptionHistory.length - 1] = transcriptionItem;
+                console.log('替换历史记录最后一条:', transcriptionItem);
+              } 
+              // 如果不是前缀关系，且不完全重复，添加到历史记录
+              else if (lastItem.text !== text) {
+                this.transcriptionHistory.push(transcriptionItem);
+                console.log('添加到转录历史:', transcriptionItem);
+              }
+            } else {
+              // 不同发言人，直接添加
+              this.transcriptionHistory.push(transcriptionItem);
+              console.log('添加到转录历史:', transcriptionItem);
+            }
+          }
+        });
+      }
       
       // 清空缓冲区
       this.transcriptionBuffer = [];
@@ -1221,15 +1293,24 @@ input[type="range"] {
   background-color: #f56c6c;
 }
 
-/* 字幕样式 */
-.subtitle-container {
+/* 多用户字幕容器 */
+.multi-subtitle-container {
   position: fixed;
   bottom: 100px;
   left: 0;
   right: 0;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   z-index: 999;
+}
+
+/* 字幕样式 */
+.subtitle-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 
 .subtitle {
@@ -1242,6 +1323,40 @@ input[type="range"] {
   text-align: center;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
   animation: fadeIn 0.5s ease-out;
+}
+
+.speaker-name {
+  font-weight: bold;
+  color: #409eff;
+  margin-right: 8px;
+}
+
+.nickname-container {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #333;
+  font-size: 14px;
+}
+
+.nickname-input {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.nickname-input input {
+  padding: 3px 6px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  font-size: 14px;
+  width: 120px;
+}
+
+.nickname-container button {
+  font-size: 12px;
+  padding: 2px 6px;
+  margin-left: 5px;
 }
 
 @keyframes slideIn {
