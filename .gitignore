@@ -25,3 +25,6 @@ dist-ssr
 
 # Sensitive files
 server/config.js
+
+# Trae IDE files
+.trae/
