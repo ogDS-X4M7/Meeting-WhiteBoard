@@ -15,6 +15,7 @@
       <button @click="setTool('text')" :class="{ active: currentTool === 'text' }">文本</button>
       <button @click="setTool('rectangle')" :class="{ active: currentTool === 'rectangle' }">矩形</button>
       <button @click="setTool('circle')" :class="{ active: currentTool === 'circle' }">圆形</button>
+      <button @click="setTool('diamond')" :class="{ active: currentTool === 'diamond' }">菱形</button>
       <button @click="setTool('arrow')" :class="{ active: currentTool === 'arrow' }">箭头</button>
       <input type="color" v-model="color" />
       <input type="range" v-model="lineWidth" min="1" max="10" />
@@ -367,7 +368,7 @@ export default {
         // 更新起点坐标，实现连续擦除
         this.startX = currentX;
         this.startY = currentY;
-      } else if (this.currentTool === 'rectangle' || this.currentTool === 'circle' || this.currentTool === 'arrow') {
+      } else if (this.currentTool === 'rectangle' || this.currentTool === 'circle' || this.currentTool === 'diamond' || this.currentTool === 'arrow') {
         // 清空画布并重新绘制所有元素
         this.ctx.clearRect(0, 0, this.width, this.height);
         this.redrawElements();
@@ -391,6 +392,19 @@ export default {
           );
           this.ctx.beginPath();
           this.ctx.arc(this.startX, this.startY, radius, 0, Math.PI * 2);
+          this.ctx.stroke();
+        } else if (this.currentTool === 'diamond') {
+          const centerX = (this.startX + currentX) / 2;
+          const centerY = (this.startY + currentY) / 2;
+          const width = Math.abs(currentX - this.startX) / 2;
+          const height = Math.abs(currentY - this.startY) / 2;
+          
+          this.ctx.beginPath();
+          this.ctx.moveTo(centerX, centerY - height);
+          this.ctx.lineTo(centerX + width, centerY);
+          this.ctx.lineTo(centerX, centerY + height);
+          this.ctx.lineTo(centerX - width, centerY);
+          this.ctx.closePath();
           this.ctx.stroke();
         } else if (this.currentTool === 'arrow') {
           this.ctx.beginPath();
@@ -419,7 +433,7 @@ export default {
       if (this.isDrawing) {
         if (this.currentTool === 'pen') {
           // 画笔已经在draw方法中逐段保存，不需要额外处理
-        } else if (this.currentTool === 'rectangle' || this.currentTool === 'circle' || this.currentTool === 'arrow') {
+        } else if (this.currentTool === 'rectangle' || this.currentTool === 'circle' || this.currentTool === 'diamond' || this.currentTool === 'arrow') {
           // 保存图形元素
           const element = {
             type: this.currentTool,
@@ -509,6 +523,19 @@ export default {
             
             this.ctx.beginPath();
             this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            this.ctx.stroke();
+          } else if (element.type === 'diamond') {
+            const centerX = (element.startX + element.lastX) / 2;
+            const centerY = (element.startY + element.lastY) / 2;
+            const width = Math.abs(element.lastX - element.startX) / 2;
+            const height = Math.abs(element.lastY - element.startY) / 2;
+            
+            this.ctx.beginPath();
+            this.ctx.moveTo(centerX, centerY - height);
+            this.ctx.lineTo(centerX + width, centerY);
+            this.ctx.lineTo(centerX, centerY + height);
+            this.ctx.lineTo(centerX - width, centerY);
+            this.ctx.closePath();
             this.ctx.stroke();
           } else if (element.type === 'arrow') {
             this.ctx.beginPath();
@@ -851,6 +878,8 @@ export default {
             return '矩形图形';
           } else if (element.type === 'circle') {
             return '圆形图形';
+          } else if (element.type === 'diamond') {
+            return '菱形图形';
           } else if (element.type === 'arrow') {
             return '箭头图形';
           } else if (element.type === 'pen') {
