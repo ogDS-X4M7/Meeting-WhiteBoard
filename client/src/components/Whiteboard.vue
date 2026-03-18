@@ -91,11 +91,14 @@ export default {
   },
   data() {
     return {
+      // 白板属性
       width: 800,
       height: 600,
+      // 画笔属性
       color: '#000000',
       lineWidth: 2,
       currentTool: 'pen',
+      // 状态属性
       isDrawing: false,
       isAddingText: false,
       textInput: '',
@@ -111,18 +114,18 @@ export default {
       isRecording: false,
       transcription: '',
       audioContext: null,
-      processor: null,
-      stream: null,
-      drawingPoints: [],
-      summary: '',
+      processor: null, // 音频处理器
+      stream: null, // 音频流
+      drawingPoints: [], // 收集当前绘制点
+      summary: '', // 摘要
       transcriptionHistory: [],
       transcriptionBuffer: [], // 转录缓冲区，用于存储时间窗口内的结果
       bufferTimer: null, // 定期检查缓冲区的定时器
-      originalElements: null,
+      originalElements: null, // 原始元素，用于撤销美化
       showToast: false,
       toastMessage: '',
       toastType: 'info',
-      strokeId: 0,
+      strokeId: 0, // 绘制的笔画id
       currentStrokeId: null,
       // 音频播放相关
       playbackAudioContext: null,

@@ -50,6 +50,7 @@ class MeetingRoomManager {
     const room = {
       code,
       createdAt: new Date(),
+      lastActivityTime: new Date(),
       members: [],
       canvasState: [],
       beautifyState: null
@@ -74,6 +75,7 @@ class MeetingRoomManager {
       room = {
         code,
         createdAt: new Date(),
+        lastActivityTime: new Date(),
         members: [],
         canvasState: [],
         beautifyState: null
@@ -84,12 +86,16 @@ class MeetingRoomManager {
       room = {
         code,
         createdAt: new Date(),
+        lastActivityTime: new Date(),
         members: [],
         canvasState: [],
         beautifyState: null
       };
       this.rooms.set(code, room);
       console.log(`Meeting room ${code} created for new join`);
+    } else {
+      // 更新最后活动时间
+      room.lastActivityTime = new Date();
     }
 
     // 检查是否已加入
@@ -129,11 +135,35 @@ class MeetingRoomManager {
     }
   }
 
+  // 定期检查并清理无人或长时间无活动的会议室
+  cleanupEmptyRooms() {
+    const now = new Date();
+    const timeout = 10 * 60 * 1000; // 10分钟超时
+    let deletedRooms = 0;
+
+    for (const [code, room] of this.rooms.entries()) {
+      // 检查会议室是否为空或长时间无活动
+      const isEmpty = room.members.length === 0;
+      const isInactive = now - room.lastActivityTime > timeout;
+
+      if (isEmpty || isInactive) {
+        console.log(`Cleaning up room ${code} - ${isEmpty ? 'empty' : 'inactive'}`);
+        this.rooms.delete(code);
+        deletedRooms++;
+      }
+    }
+
+    if (deletedRooms > 0) {
+      console.log(`Cleaned up ${deletedRooms} rooms`);
+    }
+  }
+
   // 更新会议室画布状态
   updateCanvasState(code, state) {
     const room = this.rooms.get(code);
     if (room) {
       room.canvasState = state;
+      room.lastActivityTime = new Date();
     }
   }
 
@@ -681,4 +711,10 @@ function parseWebSocketMessage(data) {
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+
+  // 每5分钟检查并清理一次无人的会议室
+  setInterval(() => {
+    meetingRoomManager.cleanupEmptyRooms();
+  }, 5 * 60 * 1000);
+  console.log('Empty room cleanup scheduled every 5 minutes');
 });
