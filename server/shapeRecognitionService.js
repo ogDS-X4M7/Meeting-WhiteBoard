@@ -177,26 +177,55 @@ class ShapeRecognitionService {
 
   // 判断是否为箭头
   isArrow(points) {
-    // 检查点的数量和方向变化
+    // 检查点的数量
     if (points.length < 3) return false;
 
-    // 计算方向变化
-    let directionChanges = 0;
-    for (let i = 1; i < points.length - 1; i++) {
-      const p1 = points[i - 1];
-      const p2 = points[i];
-      const p3 = points[i + 1];
+    // 简化箭头识别逻辑
+    // 1. 计算起点到终点的距离
+    const startPoint = points[0];
+    const endPoint = points[points.length - 1];
+    const distance = this.calculateDistance(startPoint, endPoint);
 
-      const angle1 = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-      const angle2 = Math.atan2(p3.y - p2.y, p3.x - p2.x);
-      const angleDiff = Math.abs(angle1 - angle2);
-
-      if (angleDiff > Math.PI / 4) {
-        directionChanges++;
-      }
+    // 2. 计算所有点到起点-终点连线的平均距离
+    let totalDistance = 0;
+    for (const point of points) {
+      totalDistance += this.distanceToLine(point, startPoint, endPoint);
     }
+    const avgDistance = totalDistance / points.length;
 
-    return directionChanges === 1; // 箭头通常有一个方向变化
+    // 3. 箭头的特征：大部分点应该靠近起点-终点连线
+    // 平均距离与总距离的比例应该较小
+    const distanceRatio = avgDistance / (distance + 0.001);
+
+    // 4. 允许0-2个方向变化，降低识别难度
+    // let directionChanges = 0;
+    // for (let i = 1; i < points.length - 1; i++) {
+    //   const p1 = points[i - 1];
+    //   const p2 = points[i];
+    //   const p3 = points[i + 1];
+
+    //   const angle1 = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+    //   const angle2 = Math.atan2(p3.y - p2.y, p3.x - p2.x);
+    //   const angleDiff = Math.abs(angle1 - angle2);
+
+    //   if (angleDiff > Math.PI / 6) { // 放宽角度差阈值
+    //     directionChanges++;
+    //   }
+    // }
+
+    // 箭头的特征：
+    // 1. 平均距离与总距离的比例较小（点靠近连线）
+    // 2. 方向变化次数在0-2之间
+    // return distanceRatio < 0.3 && directionChanges <= 2;
+    return distanceRatio < 0.3
+  }
+
+  // 计算点到直线的距离
+  distanceToLine(point, lineStart, lineEnd) {
+    const A = lineEnd.y - lineStart.y;
+    const B = lineStart.x - lineEnd.x;
+    const C = lineEnd.x * lineStart.y - lineStart.x * lineEnd.y;
+    return Math.abs(A * point.x + B * point.y + C) / Math.sqrt(A * A + B * B);
   }
 
   // 判断是否为菱形

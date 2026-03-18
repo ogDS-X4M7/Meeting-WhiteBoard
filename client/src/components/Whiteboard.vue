@@ -13,12 +13,18 @@
       <button @click="setTool('pen')" :class="{ active: currentTool === 'pen' }">画笔</button>
       <button @click="setTool('eraser')" :class="{ active: currentTool === 'eraser' }">橡皮</button>
       <button @click="setTool('text')" :class="{ active: currentTool === 'text' }">文本</button>
+      <button @click="setTool('mouse')" :class="{ active: currentTool === 'mouse' }">鼠标</button>
       <button @click="setTool('rectangle')" :class="{ active: currentTool === 'rectangle' }">矩形</button>
       <button @click="setTool('circle')" :class="{ active: currentTool === 'circle' }">圆形</button>
       <button @click="setTool('diamond')" :class="{ active: currentTool === 'diamond' }">菱形</button>
       <button @click="setTool('arrow')" :class="{ active: currentTool === 'arrow' }">箭头</button>
       <input type="color" v-model="color" />
+      <span>笔画粗细:</span>
       <input type="range" v-model="lineWidth" min="1" max="10" />
+      <span>{{ lineWidth }}px</span>
+      <span>字体大小:</span>
+      <input type="range" v-model="fontSize" min="8" max="48" />
+      <span>{{ fontSize }}px</span>
       <button @click="clearCanvas">清空</button>
       <button @click="exportCanvas">导出</button>
       <button @click="toggleSpeechRecognition" :class="{ active: isRecording }">
@@ -50,14 +56,22 @@
         </div>
       </div>
     </div>
-    <div v-if="currentTool === 'text' && isAddingText" class="text-input-container">
-      <input 
-        ref="textInput" 
-        v-model="textInput" 
-        @blur="finishTextInput" 
-        @keyup.enter="finishTextInput"
-        placeholder="输入文本"
-      />
+    <div v-if="currentTool === 'text' && isAddingText" class="text-input-wrapper" :style="{ left: textbox.x + 'px', top: textbox.y + 'px' }">
+      <div class="text-input-container" :style="{ width: textbox.width + 'px', height: textbox.height + 'px' }">
+        <textarea 
+          ref="textInput" 
+          v-model="textbox.content" 
+          @input="updateTextPreview"
+          @keyup.enter="finishTextInput"
+          @blur="handleTextareaBlur"
+          placeholder="输入文本，按Enter键或点击确认按钮绘制"
+          :style="{ fontSize: textbox.fontSize + 'px' }"
+          rows="4"
+        />
+      </div>
+      <div class="text-input-button" style="pointer-events: auto;">
+        <button @click.stop="finishTextInput">确认</button>
+      </div>
     </div>
     <!-- 提示组件 -->
     <div v-if="showToast" class="toast" :class="toastType">
@@ -120,7 +134,24 @@ export default {
       transcriptionSpeaker: '',
       // 多用户字幕显示
       userTranscriptions: {}, // 存储每个用户的转录结果
-      transcriptionTimers: {} // 存储每个用户的字幕显示定时器
+      transcriptionTimers: {}, // 存储每个用户的字幕显示定时器
+      // 文本框相关
+      isAddingText: false,
+      textbox: {
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 100,
+        content: '',
+        fontSize: 16,
+        isResizing: false,
+        isDragging: false,
+        resizeHandle: null,
+        dragOffsetX: 0,
+        dragOffsetY: 0
+      },
+      // 文本字体大小
+      fontSize: 16
     };
   },
   mounted() {
@@ -289,11 +320,44 @@ export default {
       // 清空绘制点数组，准备收集新图形的点
       this.drawingPoints = [{ x: this.startX, y: this.startY }];
       
-      if (this.currentTool === 'text') {
-        this.isAddingText = true;
-        setTimeout(() => {
-          this.$refs.textInput.focus();
-        }, 100);
+      if (this.currentTool === 'text' || this.currentTool === 'mouse') {
+        // 检查是否点击了调整手柄
+        const resizeHandleSize = 8;
+        const handleX = this.textbox.x + this.textbox.width - resizeHandleSize / 2;
+        const handleY = this.textbox.y + this.textbox.height - resizeHandleSize / 2;
+        
+        if (this.isAddingText && 
+            this.startX >= handleX && 
+            this.startX <= handleX + resizeHandleSize && 
+            this.startY >= handleY && 
+            this.startY <= handleY + resizeHandleSize) {
+          // 开始调整文本框大小
+          this.textbox.isResizing = true;
+          this.textbox.isDragging = false;
+          this.textbox.resizeHandle = 'bottomRight';
+        } else if (this.isAddingText && 
+                   this.startX >= this.textbox.x && 
+                   this.startX <= this.textbox.x + this.textbox.width && 
+                   this.startY >= this.textbox.y && 
+                   this.startY <= this.textbox.y + this.textbox.height) {
+          // 开始拖动文本框
+          this.textbox.isDragging = true;
+          this.textbox.isResizing = false;
+          this.textbox.dragOffsetX = this.startX - this.textbox.x;
+          this.textbox.dragOffsetY = this.startY - this.textbox.y;
+        } else if (this.currentTool === 'text') {
+          // 开始创建文本框
+          this.isAddingText = true;
+          this.textbox.x = this.startX;
+          this.textbox.y = this.startY;
+          this.textbox.width = 200;
+          this.textbox.height = 100;
+          this.textbox.content = '';
+          this.textbox.fontSize = this.fontSize;
+          this.textbox.isResizing = false;
+          this.textbox.isDragging = false;
+          this.textbox.resizeHandle = null;
+        }
       } else {
         this.isDrawing = true;
         // 为每一笔分配一个唯一的strokeId，使用socketId作为前缀
@@ -302,7 +366,7 @@ export default {
       }
     },
     draw(e) {
-      if (!this.isDrawing) return;
+      if (!this.isDrawing && !this.isAddingText) return;
       
       const rect = this.canvas.getBoundingClientRect();
       const currentX = e.clientX - rect.left;
@@ -312,7 +376,43 @@ export default {
       this.lastX = currentX;
       this.lastY = currentY;
       
-      if (this.currentTool === 'pen') {
+      if ((this.currentTool === 'text' || this.currentTool === 'mouse') && this.isAddingText) {
+        if (this.textbox.isDragging) {
+          // 拖动文本框
+          this.textbox.x = currentX - this.textbox.dragOffsetX;
+          this.textbox.y = currentY - this.textbox.dragOffsetY;
+        } else if (this.textbox.isResizing) {
+          // 调整文本框大小
+          this.textbox.width = Math.max(50, currentX - this.textbox.x);
+          this.textbox.height = Math.max(30, currentY - this.textbox.y);
+        } else {
+          // 创建文本框时调整大小
+          this.textbox.width = Math.max(50, currentX - this.textbox.x);
+          this.textbox.height = Math.max(30, currentY - this.textbox.y);
+        }
+        
+        // 清空画布并重新绘制所有元素
+        this.ctx.clearRect(0, 0, this.width, this.height);
+        this.redrawElements();
+        
+        // 绘制文本框
+        this.ctx.strokeStyle = this.color;
+        this.ctx.lineWidth = this.lineWidth;
+        this.ctx.strokeRect(this.textbox.x, this.textbox.y, this.textbox.width, this.textbox.height);
+        
+        // 绘制调整手柄
+        const resizeHandleSize = 8;
+        this.ctx.fillStyle = this.color;
+        this.ctx.fillRect(
+          this.textbox.x + this.textbox.width - resizeHandleSize,
+          this.textbox.y + this.textbox.height - resizeHandleSize,
+          resizeHandleSize,
+          resizeHandleSize
+        );
+        
+        // 不再提前绘制文本内容，只在textarea中显示
+
+      } else if (this.currentTool === 'pen') {
         this.ctx.strokeStyle = this.color;
         this.ctx.lineWidth = this.lineWidth;
         this.ctx.beginPath();
@@ -461,6 +561,36 @@ export default {
           console.log('Local canvas redrawn after erasing');
         }
         this.isDrawing = false;
+      } else if (this.isAddingText) {
+        // 文本框创建、调整或拖动完成
+        if (this.textbox.isResizing) {
+          // 调整完成，重置调整状态
+          this.textbox.isResizing = false;
+          this.textbox.resizeHandle = null;
+        } else if (this.textbox.isDragging) {
+          // 拖动完成，重置拖动状态
+          this.textbox.isDragging = false;
+        }
+        
+        // 保持isAddingText为true，显示文本输入界面
+        // 重新绘制画布，显示文本框
+        this.ctx.clearRect(0, 0, this.width, this.height);
+        this.redrawElements();
+        
+        // 绘制文本框
+        this.ctx.strokeStyle = this.color;
+        this.ctx.lineWidth = this.lineWidth;
+        this.ctx.strokeRect(this.textbox.x, this.textbox.y, this.textbox.width, this.textbox.height);
+        
+        // 绘制调整手柄
+        const resizeHandleSize = 8;
+        this.ctx.fillStyle = this.color;
+        this.ctx.fillRect(
+          this.textbox.x + this.textbox.width - resizeHandleSize,
+          this.textbox.y + this.textbox.height - resizeHandleSize,
+          resizeHandleSize,
+          resizeHandleSize
+        );
       }
     },
     redrawCanvas() {
@@ -559,35 +689,149 @@ export default {
             this.ctx.stroke();
           } else if (element.type === 'text') {
             this.ctx.fillStyle = element.color;
-            this.ctx.font = `${element.lineWidth * 2}px Arial`;
-            this.ctx.fillText(element.text, element.x, element.y);
+            // 使用element.fontSize作为字体大小，如果没有则使用默认值16
+            const fontSize = element.fontSize || 16;
+            this.ctx.font = `${fontSize}px Arial`;
+            
+            // 处理多行文本，考虑文本框宽度自动换行
+            const lines = this.wrapText(element.text, element.width - 20, fontSize);
+            const lineHeight = fontSize * 1.2;
+            lines.forEach((line, index) => {
+              this.ctx.fillText(line, element.x + 10, element.y + 30 + index * lineHeight);
+            });
           }
         }
       });
     },
+    updateTextPreview() {
+      // 实时更新画布上的文本预览
+      this.ctx.clearRect(0, 0, this.width, this.height);
+      this.redrawElements();
+      
+      // 绘制文本框
+      this.ctx.strokeStyle = this.color;
+      this.ctx.lineWidth = this.lineWidth;
+      this.ctx.strokeRect(this.textbox.x, this.textbox.y, this.textbox.width, this.textbox.height);
+      
+      // 绘制调整手柄
+      const resizeHandleSize = 8;
+      this.ctx.fillStyle = this.color;
+      this.ctx.fillRect(
+        this.textbox.x + this.textbox.width - resizeHandleSize,
+        this.textbox.y + this.textbox.height - resizeHandleSize,
+        resizeHandleSize,
+        resizeHandleSize
+      );
+      
+      // 不再提前绘制文本内容，只在textarea中显示
+    },
+    wrapText(text, maxWidth, fontSize) {
+      const lines = [];
+      
+      this.ctx.font = `${fontSize}px Arial`;
+      
+      // 检查文本框是否非常窄，需要垂直排列
+      const singleCharWidth = this.ctx.measureText('A').width;
+      if (maxWidth < singleCharWidth * 2) {
+        // 文本框非常窄，每个字符单独占一行
+        for (let i = 0; i < text.length; i++) {
+          if (text[i] !== ' ') {
+            lines.push(text[i]);
+          }
+        }
+        return lines;
+      }
+      
+      // 正常情况，按单词换行
+      let currentLine = '';
+      const words = text.split(' ');
+      
+      for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        // 检查单个单词是否已经超过最大宽度
+        const wordWidth = this.ctx.measureText(word).width;
+        if (wordWidth > maxWidth) {
+          // 单个单词超过最大宽度，需要按字符换行
+          let currentWordLine = '';
+          for (let j = 0; j < word.length; j++) {
+            const char = word[j];
+            const testLine = currentWordLine + char;
+            const testWidth = this.ctx.measureText(testLine).width;
+            if (testWidth <= maxWidth) {
+              currentWordLine = testLine;
+            } else {
+              if (currentWordLine) {
+                lines.push(currentWordLine);
+              }
+              currentWordLine = char;
+            }
+          }
+          if (currentWordLine) {
+            lines.push(currentWordLine);
+          }
+        } else {
+          // 单个单词未超过最大宽度，按单词换行
+          const testLine = currentLine + (currentLine ? ' ' : '') + word;
+          const testWidth = this.ctx.measureText(testLine).width;
+          
+          if (testWidth <= maxWidth) {
+            currentLine = testLine;
+          } else {
+            if (currentLine) {
+              lines.push(currentLine);
+            }
+            currentLine = word;
+          }
+        }
+      }
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+      return lines;
+    },
+    cancelTextInput() {
+      this.isAddingText = false;
+      this.textbox.content = '';
+      // 清空画布并重新绘制所有元素，隐藏文本框
+      this.ctx.clearRect(0, 0, this.width, this.height);
+      this.redrawElements();
+    },
+    handleTextareaBlur(event) {
+      // 检查是否是因为点击确认按钮而导致的blur事件
+      const target = event.relatedTarget;
+      if (target && target.closest && target.closest('.text-input-button')) {
+        // 点击了确认按钮，不执行取消操作
+        return;
+      }
+      // 其他情况，执行取消操作
+      this.cancelTextInput();
+    },
     finishTextInput() {
-      if (this.textInput) {
-        this.ctx.fillStyle = this.color;
-        this.ctx.font = `${this.lineWidth * 2}px Arial`;
-        this.ctx.fillText(this.textInput, this.startX, this.startY);
+      if (this.textbox.content) {
         // 保存文本到elements数组
         const element = {
           type: 'text',
-          x: this.startX,
-          y: this.startY,
-          text: this.textInput,
+          x: this.textbox.x,
+          y: this.textbox.y,
+          width: this.textbox.width,
+          height: this.textbox.height,
+          text: this.textbox.content,
           color: this.color,
-          lineWidth: this.lineWidth
+          fontSize: this.textbox.fontSize
         };
         this.elements.push(element);
+        
         // 发送到服务器
         this.sendWebSocketMessage('text', element);
         
         // 添加到转录历史
-        this.transcriptionHistory.push(this.textInput);
+        this.transcriptionHistory.push(this.textbox.content);
       }
       this.isAddingText = false;
-      this.textInput = '';
+      this.textbox.content = '';
+      // 清空画布并重新绘制所有元素，隐藏文本框
+      this.ctx.clearRect(0, 0, this.width, this.height);
+      this.redrawElements();
     },
     clearCanvas() {
       this.ctx.clearRect(0, 0, this.width, this.height);
@@ -1168,7 +1412,7 @@ export default {
 
 canvas {
   background-color: white;
-  cursor: crosshair;
+  cursor: v-bind('currentTool === "mouse" ? "default" : "crosshair"');
 }
 
 .toolbar {
@@ -1214,23 +1458,58 @@ input[type="range"] {
   width: 100px;
 }
 
-.text-input-container {
+.text-input-wrapper {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  z-index: 100;
+}
+
+.text-input-container {
+  position: relative;
   background-color: white;
   padding: 5px;
   border: 1px solid #ccc;
   border-radius: 3px;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  pointer-events: none;
 }
 
-.text-input-container input {
+.text-input-container textarea {
   border: none;
   outline: none;
-  font-size: 14px;
   padding: 5px;
-  width: 200px;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  font-family: Arial;
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+
+.text-input-button {
+  position: absolute;
+  right: -60px;
+  top: 0;
+  padding: 5px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  pointer-events: auto;
+}
+
+.text-input-button button {
+  padding: 5px 10px;
+  border: none;
+  border-radius: 3px;
+  background-color: #007bff;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.text-input-container textarea {
+  pointer-events: auto;
 }
 
 .transcription-container {
