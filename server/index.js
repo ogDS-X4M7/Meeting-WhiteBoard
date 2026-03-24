@@ -71,7 +71,7 @@ class MeetingRoomManager {
     // 检查会议室是否存在且为空
     if (room && room.members.length === 0) {
       // 如果会议室存在但为空，创建一个新的空会议室
-      console.log(`Meeting room ${code} is empty, creating new one`);
+      console.log(`会议室${code}为空，创建一个新的空会议室`);
       room = {
         code,
         createdAt: new Date(),
@@ -92,7 +92,7 @@ class MeetingRoomManager {
         beautifyState: null
       };
       this.rooms.set(code, room);
-      console.log(`Meeting room ${code} created for new join`);
+      console.log(`会议室${code}创建成功`);
     } else {
       // 更新最后活动时间
       room.lastActivityTime = new Date();
@@ -119,19 +119,19 @@ class MeetingRoomManager {
   leaveRoom(code, socketId) {
     const room = this.rooms.get(code);
     if (!room) {
-      console.log(`Room ${code} not found`);
+      console.log(`会议室${code}不存在，无法离开`);
       return;
     }
 
-    console.log(`Leaving room ${code}, current members: ${room.members.length}`);
+    console.log(`会议室${code}离开成功`);
     room.members = room.members.filter(member => member.socketId !== socketId);
-    console.log(`After leaving, members left: ${room.members.length}`);
+    console.log(`离开后，会议室${code}成员数：${room.members.length}`);
 
     // 如果会议室为空，删除会议室
     if (room.members.length === 0) {
-      console.log(`Room ${code} is empty, deleting`);
+      console.log(`会议室${code}为空，删除`);
       this.rooms.delete(code);
-      console.log(`Meeting room ${code} deleted as all members left`);
+      console.log(`会议室${code}删除成功`);
     }
   }
 
@@ -147,14 +147,14 @@ class MeetingRoomManager {
       const isInactive = now - room.lastActivityTime > timeout;
 
       if (isEmpty || isInactive) {
-        console.log(`Cleaning up room ${code} - ${isEmpty ? 'empty' : 'inactive'}`);
+        console.log(`会议室${code}${isEmpty ? '为空' : '超时'}`);
         this.rooms.delete(code);
         deletedRooms++;
       }
     }
 
     if (deletedRooms > 0) {
-      console.log(`Cleaned up ${deletedRooms} rooms`);
+      console.log(`删除${deletedRooms}个会议室成功`);
     }
   }
 
@@ -177,16 +177,16 @@ class MeetingRoomManager {
   broadcastToRoom(code, message, excludeSocketId = null) {
     const room = this.rooms.get(code);
     if (!room) {
-      console.log(`Room ${code} not found for broadcasting`);
+      console.log(`会议室${code}不存在，无法广播消息`);
       return;
     }
 
-    console.log(`Broadcasting to room ${code}, members count: ${room.members.length}, excludeSocketId: ${excludeSocketId}`);
+    console.log(`会议室${code}成员数：${room.members.length}，排除socketId：${excludeSocketId}`);
     room.members.forEach(member => {
       if (member.socketId !== excludeSocketId) {
         const socket = clients.find(client => client.id === member.socketId);
         if (socket) {
-          console.log(`Sending message to socket ${member.socketId}`);
+          console.log(`向socket${member.socketId}发送消息`);
           // 检查消息类型，如果是二进制数据，使用 WebSocket 二进制消息格式发送
           if (Buffer.isBuffer(message)) {
             sendWebSocketBinaryMessage(socket, message);
@@ -194,7 +194,7 @@ class MeetingRoomManager {
             sendWebSocketMessage(socket, message);
           }
         } else {
-          console.log(`Socket ${member.socketId} not found`);
+          console.log(`socket${member.socketId}不存在`);
         }
       }
     });
@@ -208,7 +208,7 @@ let clients = [];
 app.post('/api/speech', upload.single('audio'), (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ success: false, error: 'No audio file provided' });
+      return res.status(400).json({ success: false, error: '请上传音频文件' });
     }
 
     // 这里应该使用SpeechService处理音频并返回转写结果
@@ -238,14 +238,14 @@ app.post('/api/speech', upload.single('audio'), (req, res) => {
     // 注意：这里需要根据实际音频格式进行处理
     */
   } catch (error) {
-    console.error('Error processing speech request:', error);
+    console.error('处理语音请求时出错:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 // 健康检查端点
 app.get('/', (req, res) => {
-  res.send('WebSocket server running');
+  res.send('websocket服务器运行中');
 });
 
 // 图形识别API端点
@@ -254,7 +254,7 @@ app.post('/api/recognize-shape', (req, res) => {
     const { points } = req.body;
 
     if (!points || !Array.isArray(points)) {
-      return res.status(400).json({ success: false, error: 'Invalid points data' });
+      return res.status(400).json({ success: false, error: '请提供有效点数据' });
     }
 
     const shapeRecognitionService = new ShapeRecognitionService();
@@ -263,7 +263,7 @@ app.post('/api/recognize-shape', (req, res) => {
 
     res.json({ success: true, shape: beautifiedShape });
   } catch (error) {
-    console.error('Error recognizing shape:', error);
+    console.error('识别形状时出错:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -274,7 +274,7 @@ app.post('/api/generate-summary', async (req, res) => {
     const { whiteboardContent, transcriptionHistory } = req.body;
 
     if (!whiteboardContent) {
-      return res.status(400).json({ success: false, error: 'Whiteboard content is required' });
+      return res.status(400).json({ success: false, error: '请提供白板内容' });
     }
 
     const summaryService = new SummaryService();
@@ -282,7 +282,7 @@ app.post('/api/generate-summary', async (req, res) => {
 
     res.json({ success: true, summary });
   } catch (error) {
-    console.error('Error generating summary:', error);
+    console.error('生成摘要时出错:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -293,7 +293,7 @@ app.post('/api/create-meeting', (req, res) => {
     const room = meetingRoomManager.createRoom();
     res.json({ success: true, roomCode: room.code });
   } catch (error) {
-    console.error('Error creating meeting:', error);
+    console.error('创建会议室时出错:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -304,17 +304,17 @@ app.post('/api/join-meeting', (req, res) => {
     const { roomCode } = req.body;
 
     if (!roomCode) {
-      return res.status(400).json({ success: false, error: 'Room code is required' });
+      return res.status(400).json({ success: false, error: '请提供会议室代码（roomCode）' });
     }
 
     const room = meetingRoomManager.getRoom(roomCode);
     if (!room) {
-      return res.status(404).json({ success: false, error: 'Meeting room not found' });
+      return res.status(404).json({ success: false, error: '会议室不存在（roomCode）' });
     }
 
     res.json({ success: true, roomCode: room.code });
   } catch (error) {
-    console.error('Error joining meeting:', error);
+    console.error('加入会议室时出错:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -325,15 +325,15 @@ app.post('/api/leave-meeting', (req, res) => {
     const { roomCode, socketId } = req.body;
 
     if (!roomCode || !socketId) {
-      return res.status(400).json({ success: false, error: 'Room code and socketId are required' });
+      return res.status(400).json({ success: false, error: '请提供会议室代码（roomCode）和socketID（socketId）' });
     }
 
     // 从会议室中移除用户
     meetingRoomManager.leaveRoom(roomCode, socketId);
 
-    res.json({ success: true, message: 'Left meeting successfully' });
+    res.json({ success: true, message: '离开会议室成功' });
   } catch (error) {
-    console.error('Error leaving meeting:', error);
+    console.error('离开会议室时出错:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -344,7 +344,7 @@ server.on('upgrade', (req, socket, head) => {
   const roomCode = url.searchParams.get('roomCode');
 
   if (!roomCode) {
-    socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+    socket.write('HTTP/1.1 400 Bad Request\\r\n\r\n');
     socket.destroy();
     return;
   }
@@ -374,7 +374,7 @@ server.on('upgrade', (req, socket, head) => {
   clients.push(socket);
   socket.roomCode = roomCode;
 
-  console.log(`User connected to room ${roomCode}`);
+  console.log(`用户连接到会议室 ${roomCode}`);
 
   // 发送当前画布状态给新连接的用户
   const canvasState = meetingRoomManager.getCanvasState(roomCode);
@@ -446,11 +446,11 @@ server.on('upgrade', (req, socket, head) => {
             meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'clear' }), socket.id);
           } else if (parsedData.type === 'canvasState') {
             // 更新会议室画布状态
-            console.log(`Received canvasState from socket ${socket.id} in room ${roomCode}, elements length: ${parsedData.data.length}`);
+            console.log(`收到socket ${socket.id} 更新会议室 ${roomCode} 的画布状态，元素数量: ${parsedData.data.length}`);
             meetingRoomManager.updateCanvasState(roomCode, parsedData.data);
 
             // 广播给同一会议室的其他用户
-            console.log(`Broadcasting canvasState to room ${roomCode}, excluding socket ${socket.id}`);
+            console.log(`广播更新会议室 ${roomCode}, 排除socket ${socket.id}`);
             meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'canvasState', data: parsedData.data }), socket.id);
           } else if (parsedData.type === 'beautify') {
             // 处理美化操作
@@ -521,13 +521,13 @@ server.on('upgrade', (req, socket, head) => {
                 }
               },
               (error) => {
-                console.error('Speech service error:', error);
+                console.error('语音转写服务出错:', error);
                 sendWebSocketMessage(socket, JSON.stringify({ type: 'transcriptionError', data: error.message }));
                 // 清除定时器
                 clearInterval(transcriptionTimer);
               },
               () => {
-                console.log('Speech service closed');
+                console.log('语音转写服务已关闭');
                 // 清除定时器
                 clearInterval(transcriptionTimer);
               }
@@ -557,7 +557,7 @@ server.on('upgrade', (req, socket, head) => {
                 const member = room.members.find(m => m.socketId === socket.id);
                 if (member) {
                   member.nickname = nickname;
-                  console.log(`User ${socket.id} updated nickname to ${nickname}`);
+                  console.log(`用户 ${socket.id} 更新昵称为 ${nickname}`);
                   // 发送确认消息给客户端
                   sendWebSocketMessage(socket, JSON.stringify({ type: 'nicknameUpdated', data: nickname }));
                 }
@@ -565,7 +565,7 @@ server.on('upgrade', (req, socket, head) => {
             }
           } else if (parsedData.type === 'undoBeautify') {
             // 处理撤销美化操作
-            console.log(`Received undoBeautify from socket ${socket.id} in room ${roomCode}`);
+            console.log(`用户 ${socket.id} 撤销会议室 ${roomCode} 的美化操作`);
 
             // 获取会议室对象
             const room = meetingRoomManager.getRoom(roomCode);
@@ -578,18 +578,18 @@ server.on('upgrade', (req, socket, head) => {
               room.beautifyState = null;
 
               // 广播canvasState消息给同一会议室的其他用户
-              console.log(`Broadcasting canvasState to room ${roomCode}, excluding socket ${socket.id}`);
+              console.log(`广播更新会议室 ${roomCode}, 排除socket ${socket.id}`);
               meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({ type: 'canvasState', data: originalState }), socket.id);
             } else {
-              console.log('No beautify state found for room', roomCode);
+              console.log(`会议室 ${roomCode} 未找到美化状态`);
             }
           }
         } catch (error) {
-          console.error('Error parsing JSON message:', error);
+          console.error('解析消息出错:', error);
         }
       }
     } catch (error) {
-      console.error('Error processing message:', error);
+      console.error('处理消息出错:', error);
     }
   });
 
@@ -602,9 +602,9 @@ server.on('upgrade', (req, socket, head) => {
 
     // 从会议室中移除用户
     if (socket.roomCode) {
-      console.log(`User disconnecting from room ${socket.roomCode}`);
+      console.log(`用户与会议室 ${socket.roomCode} 断开连接`);
       meetingRoomManager.leaveRoom(socket.roomCode, socket.id);
-      console.log(`User disconnected from room ${socket.roomCode}`);
+      console.log(`用户与会议室 ${socket.roomCode} 断开连接`);
     }
 
     // 从客户端列表中移除
@@ -703,7 +703,7 @@ function parseWebSocketMessage(data) {
       return data.slice(offset, offset + payloadLength).toString('utf8');
     }
   } catch (error) {
-    console.error('Error parsing WebSocket message:', error);
+    console.error('解析消息出错:', error);
     return null;
   }
 }
@@ -716,5 +716,5 @@ server.listen(PORT, () => {
   setInterval(() => {
     meetingRoomManager.cleanupEmptyRooms();
   }, 5 * 60 * 1000);
-  console.log('Empty room cleanup scheduled every 5 minutes');
+  console.log('每5分钟清理一次无人的会议室');
 });

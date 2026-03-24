@@ -85,7 +85,7 @@ export default {
         }
       } catch (error) {
         this.errorMessage = '网络错误，请稍后重试'
-        console.error('Error creating meeting:', error)
+        console.error('创建会议失败:', error)
       }
     },
     
@@ -113,12 +113,12 @@ export default {
         }
       } catch (error) {
         this.errorMessage = '网络错误，请稍后重试'
-        console.error('Error joining meeting:', error)
+        console.error('加入会议失败:', error)
       }
     },
     
     async leaveMeeting() {
-      console.log('Leaving meeting...');
+      // console.log('离开会议中...');
       try {
         // 从 Whiteboard 组件中获取 socketId
         const socketId = this.$refs.whiteboard ? this.$refs.whiteboard.socketId : null;
@@ -134,13 +134,13 @@ export default {
           
           const result = await response.json();
           if (result.success) {
-            console.log('Left meeting successfully on server');
+            console.log('离开会议成功');
           } else {
-            console.error('Error leaving meeting:', result.error);
+            console.error('离开会议失败:', result.error);
           }
         }
       } catch (error) {
-        console.error('Error leaving meeting:', error);
+        console.error('离开会议失败:', error);
       }
       
       // 关闭 WebSocket 连接
@@ -152,7 +152,7 @@ export default {
       this.isInMeeting = false
       this.currentRoomCode = ''
       this.roomCode = ''
-      console.log('Left meeting successfully');
+      console.log('离开会议成功');
     }
   }
 }
