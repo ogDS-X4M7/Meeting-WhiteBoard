@@ -178,7 +178,7 @@ export default {
       try {
         // 使用传入的roomCode建立WebSocket连接
         console.log(`与会议室${this.roomCode}建立WebSocket连接`);
-        this.socket = new WebSocket(`ws://192.168.154.168:8080?roomCode=${this.roomCode}`);
+        this.socket = new WebSocket(`ws://192.168.248.168:8080?roomCode=${this.roomCode}`);
         
         this.socket.onopen = () => {
           console.log(`与会议室${this.roomCode}的WebSocket连接成功，readyState: ${this.socket.readyState}`);
@@ -1034,7 +1034,7 @@ export default {
           strokeId: this.currentStrokeId
         };
         
-        const response = await fetch('http://192.168.154.168:8080/api/recognize-shape', {
+        const response = await fetch('http://192.168.248.168:8080/api/recognize-shape', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1140,7 +1140,7 @@ export default {
           return;
         }
         
-        const response = await fetch('http://192.168.154.168:8080/api/generate-summary', {
+        const response = await fetch('http://192.168.248.168:8080/api/generate-summary', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
