@@ -119,24 +119,28 @@ export default {
     
     leaveMeeting() {
       // 关闭 WebSocket 连接
-      if (this.$refs.whiteboard) {
-        this.$refs.whiteboard.closeWebSocket();
+      // if (this.$refs.whiteboard) {
+      //   this.$refs.whiteboard.closeWebSocket();
         
-        // 延迟切换到会议管理界面，确保WebSocket连接完全关闭
-        setTimeout(() => {
-          // 切换到会议管理界面
-          this.isInMeeting = false
-          this.currentRoomCode = ''
-          this.roomCode = ''
-          console.log('离开会议成功');
-        }, 500);
-      } else {
-        // 如果没有whiteboard组件，直接切换到会议管理界面
-        this.isInMeeting = false
-        this.currentRoomCode = ''
-        this.roomCode = ''
-        console.log('离开会议成功');
-      }
+      //   // 延迟切换到会议管理界面，确保WebSocket连接完全关闭
+      //   setTimeout(() => {
+      //     // 切换到会议管理界面
+      //     this.isInMeeting = false
+      //     this.currentRoomCode = ''
+      //     this.roomCode = ''
+      //     console.log('离开会议成功');
+      //   }, 500);
+      // } else {
+      //   // 如果没有whiteboard组件，直接切换到会议管理界面
+      //   this.isInMeeting = false
+      //   this.currentRoomCode = ''
+      //   this.roomCode = ''
+      //   console.log('离开会议成功');
+      // }
+      this.isInMeeting = false
+      this.currentRoomCode = ''
+      this.roomCode = ''
+      console.log('离开会议成功');
     }
   }
 }
