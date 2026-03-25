@@ -309,7 +309,7 @@ app.post('/api/join-meeting', (req, res) => {
 
     const room = meetingRoomManager.getRoom(roomCode);
     if (!room) {
-      return res.status(404).json({ success: false, error: '会议室不存在（roomCode）' });
+      return res.status(404).json({ success: false, error: '会议室不存在' });
     }
 
     res.json({ success: true, roomCode: room.code });
@@ -319,24 +319,7 @@ app.post('/api/join-meeting', (req, res) => {
   }
 });
 
-// 离开会议API端点
-app.post('/api/leave-meeting', (req, res) => {
-  try {
-    const { roomCode, socketId } = req.body;
 
-    if (!roomCode || !socketId) {
-      return res.status(400).json({ success: false, error: '请提供会议室代码（roomCode）和socketID（socketId）' });
-    }
-
-    // 从会议室中移除用户
-    meetingRoomManager.leaveRoom(roomCode, socketId);
-
-    res.json({ success: true, message: '离开会议室成功' });
-  } catch (error) {
-    console.error('离开会议室时出错:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
 
 server.on('upgrade', (req, socket, head) => {
   // 从URL中提取会议室代码
@@ -396,6 +379,12 @@ server.on('upgrade', (req, socket, head) => {
         const firstByte = data[0];
         const opCode = firstByte & 0x0F;
         console.log('收到数据，长度:', data.length, 'opCode:', opCode);
+        // WebSocket关闭帧的opCode是8
+        if (opCode === 8) {
+          console.log('收到关闭帧，关闭连接');
+          socket.destroy();
+          return;
+        }
         // WebSocket二进制消息的opCode是2
         if (opCode === 2) {
           // 处理音频数据

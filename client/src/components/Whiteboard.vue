@@ -177,11 +177,11 @@ export default {
     setupWebSocket() {
       try {
         // 使用传入的roomCode建立WebSocket连接
-        console.log(`Setting up WebSocket connection to room ${this.roomCode}`);
-        this.socket = new WebSocket(`ws://192.168.118.168:8080?roomCode=${this.roomCode}`);
+        console.log(`与会议室${this.roomCode}建立WebSocket连接`);
+        this.socket = new WebSocket(`ws://192.168.154.168:8080?roomCode=${this.roomCode}`);
         
         this.socket.onopen = () => {
-          console.log(`WebSocket connected to room ${this.roomCode}, readyState: ${this.socket.readyState}`);
+          console.log(`与会议室${this.roomCode}的WebSocket连接成功，readyState: ${this.socket.readyState}`);
           // 发送昵称信息到服务器
           this.sendWebSocketMessage('updateNickname', { nickname: this.nickname });
         };
@@ -190,43 +190,43 @@ export default {
           try {
             // 检查是否是二进制数据（音频数据）
             if (event.data instanceof ArrayBuffer) {
-              console.log('Received audio data as ArrayBuffer, length:', event.data.byteLength);
+              console.log(`收到音频数据，长度: ${event.data.byteLength}`);
               // 处理音频数据
               this.playAudioData(new Int16Array(event.data));
               return;
             } else if (event.data instanceof Blob) {
-              console.log('Received audio data as Blob, size:', event.data.size);
+              console.log(`收到音频数据，大小: ${event.data.size}`);
               // 将 Blob 转换为 ArrayBuffer
               event.data.arrayBuffer().then(arrayBuffer => {
-                console.log('Blob converted to ArrayBuffer, length:', arrayBuffer.byteLength);
+                console.log(`Blob转换为ArrayBuffer，长度: ${arrayBuffer.byteLength}`);
                 this.playAudioData(new Int16Array(arrayBuffer));
               }).catch(error => {
-                console.error('Error converting Blob to ArrayBuffer:', error);
+                console.error(`Blob转换为ArrayBuffer失败:`, error);
               });
               return;
             }
             
-            console.log('Received WebSocket message:', event.data);
+            console.log(`收到WebSocket消息: ${event.data}`);
             const data = JSON.parse(event.data);
             if (data.type === 'canvasState') {
-              console.log('Received canvasState message, elements length:', data.data.length);
+              console.log(`收到canvasState消息，元素数量: ${data.data.length}`);
               this.elements = data.data;
               this.redrawCanvas();
-              console.log('Canvas redrawn after receiving canvasState');
+              console.log(`canvasState消息已处理`);
             } else if (data.type === 'draw') {
-              console.log('Received draw message:', data.data);
+              console.log(`收到draw消息: ${data.data}`);
               this.elements.push(data.data);
               this.redrawCanvas();
             } else if (data.type === 'text') {
-              console.log('Received text message:', data.data);
+              console.log(`收到text消息: ${data.data}`);
               this.elements.push(data.data);
               this.redrawCanvas();
             } else if (data.type === 'clear') {
-              console.log('Received clear message');
+              console.log(`收到clear消息`);
               this.elements = [];
               this.ctx.clearRect(0, 0, this.width, this.height);
             } else if (data.type === 'beautify') {
-              console.log('Received beautify message:', data.data);
+              console.log(`收到beautify消息: ${data.data}`);
               // 处理来自服务器的美化操作
               const { strokeId, newElement } = data.data;
               
@@ -243,16 +243,16 @@ export default {
             } else if (data.type === 'socketId') {
               // 存储 socketId
               this.socketId = data.data;
-              console.log('Received socketId:', this.socketId);
+              console.log(`收到socketId: ${this.socketId}`);
             } else if (data.type === 'error') {
-              console.error('WebSocket error:', data.message);
+              console.error(`WebSocket错误: ${data.message}`);
               this.showToastMessage(data.message, 'error');
             } else if (data.type === 'transcriptionResult') {
               // 处理语音转写结果
-              console.log('Received transcription result:', data.data || '无内容', 'from:', data.speaker || '未知');
+              console.log(`收到语音转写结果: ${data.data || '无内容'} from ${data.speaker || '未知'}`);
               const speaker = data.speaker || '未知';
               const transcription = data.data || '';
-              console.log('当前转写内容:', transcription || '无内容', '发言人:', speaker);
+              console.log(`当前转写内容: ${transcription || '无内容'} 发言人: ${speaker}`);
               
               // 将转写结果添加到缓冲区
               if (transcription) {
@@ -277,35 +277,35 @@ export default {
               }
             } else if (data.type === 'nicknameUpdated') {
               // 昵称更新确认
-              console.log('Nickname updated:', data.data);
+              console.log(`昵称已更新为: ${data.data}`);
               this.showToastMessage(`昵称已更新为: ${data.data}`, 'success');
             } else if (data.type === 'transcriptionError') {
               // 处理语音转写错误
-              console.error('Transcription error:', data.data);
-              this.showToastMessage(data.data, 'error');
+              console.error(`语音转写错误: ${data.data}`);
+              this.showToastMessage(`语音转写错误: ${data.data}`, 'error');
             } else if (data.type === 'undoBeautify') {
               // 处理撤销美化操作
-              console.log('Received undoBeautify message:', data.data);
+              console.log(`收到undoBeautify消息: ${data.data}`);
               // 撤销美化操作，移除美化后的元素，恢复原始状态
               // 由于我们没有保存原始状态，这里需要重新获取画布状态
               // 服务器会广播canvasState消息，所以这里不需要做任何操作
               // 只需要等待canvasState消息即可
-              console.log('Received undoBeautify instruction, waiting for canvasState update');
+              console.log(`收到undoBeautify消息，等待canvasState更新`);
             }
           } catch (error) {
-            console.error('Error processing WebSocket message:', error);
+            console.error(`处理WebSocket消息时出错: ${error}`);
           }
         };
         
         this.socket.onclose = () => {
-          console.log(`WebSocket disconnected from room ${this.roomCode}`);
+          console.log(`WebSocket 已断开连接，会议室: ${this.roomCode}`);
         };
         
         this.socket.onerror = (error) => {
-          console.error('WebSocket error:', error);
+          console.error(`WebSocket 错误: ${error}`);
         };
       } catch (error) {
-        console.error('Failed to setup WebSocket:', error);
+        console.error(`设置WebSocket连接时出错: ${error}`);
       }
     },
     setTool(tool) {
@@ -1034,7 +1034,7 @@ export default {
           strokeId: this.currentStrokeId
         };
         
-        const response = await fetch('http://192.168.118.168:8080/api/recognize-shape', {
+        const response = await fetch('http://192.168.154.168:8080/api/recognize-shape', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1140,7 +1140,7 @@ export default {
           return;
         }
         
-        const response = await fetch('http://192.168.118.168:8080/api/generate-summary', {
+        const response = await fetch('http://192.168.154.168:8080/api/generate-summary', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

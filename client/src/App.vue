@@ -65,7 +65,7 @@ export default {
     async createMeeting() {
       try {
         this.errorMessage = ''
-        const response = await fetch('http://192.168.118.168:8080/api/create-meeting', {
+        const response = await fetch('http://192.168.154.168:8080/api/create-meeting', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -92,7 +92,7 @@ export default {
     async joinMeeting() {
       try {
         this.errorMessage = ''
-        const response = await fetch('http://192.168.118.168:8080/api/join-meeting', {
+        const response = await fetch('http://192.168.154.168:8080/api/join-meeting', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -117,42 +117,26 @@ export default {
       }
     },
     
-    async leaveMeeting() {
-      // console.log('离开会议中...');
-      try {
-        // 从 Whiteboard 组件中获取 socketId
-        const socketId = this.$refs.whiteboard ? this.$refs.whiteboard.socketId : null;
-        if (socketId) {
-          // 发送请求到服务器，告诉服务器用户要离开会议
-          const response = await fetch('http://192.168.118.168:8080/api/leave-meeting', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ roomCode: this.currentRoomCode, socketId })
-          });
-          
-          const result = await response.json();
-          if (result.success) {
-            console.log('离开会议成功');
-          } else {
-            console.error('离开会议失败:', result.error);
-          }
-        }
-      } catch (error) {
-        console.error('离开会议失败:', error);
-      }
-      
+    leaveMeeting() {
       // 关闭 WebSocket 连接
       if (this.$refs.whiteboard) {
         this.$refs.whiteboard.closeWebSocket();
+        
+        // 延迟切换到会议管理界面，确保WebSocket连接完全关闭
+        setTimeout(() => {
+          // 切换到会议管理界面
+          this.isInMeeting = false
+          this.currentRoomCode = ''
+          this.roomCode = ''
+          console.log('离开会议成功');
+        }, 500);
+      } else {
+        // 如果没有whiteboard组件，直接切换到会议管理界面
+        this.isInMeeting = false
+        this.currentRoomCode = ''
+        this.roomCode = ''
+        console.log('离开会议成功');
       }
-      
-      // 切换到会议管理界面
-      this.isInMeeting = false
-      this.currentRoomCode = ''
-      this.roomCode = ''
-      console.log('离开会议成功');
     }
   }
 }
