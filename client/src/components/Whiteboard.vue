@@ -534,8 +534,8 @@ export default {
     },
     stopDrawing() {
       if (this.isDrawing) {
-        if (this.currentTool === 'pen') {
-          // 画笔已经在draw方法中逐段保存，不需要额外处理
+        if (this.currentTool === 'pen' || this.currentTool === 'eraser') {
+          // 画笔和橡皮都已经在draw方法中逐段保存，不需要额外处理
         } else if (this.currentTool === 'rectangle' || this.currentTool === 'circle' || this.currentTool === 'diamond' || this.currentTool === 'arrow') {
           // 保存图形元素
           const element = {
@@ -551,17 +551,9 @@ export default {
           // 发送到服务器
           this.sendWebSocketMessage('draw', element);
           // 重新绘制所有元素
+          // 注意绘制矩形等图形因为生成预览图形并不是真实绘制，因此需要存入elements再使用redrawElements重绘；
           this.ctx.clearRect(0, 0, this.width, this.height);
           this.redrawElements();
-        } else if (this.currentTool === 'eraser') {
-          // 发送橡皮操作的更新
-          console.log('Sending canvas state after erasing, elements length:', this.elements.length);
-          // 发送完整的画布状态到服务器
-          this.sendWebSocketMessage('canvasState', this.elements);
-          // 重新绘制本地画布，确保本地画面与发送到服务器的状态一致
-          this.ctx.clearRect(0, 0, this.width, this.height);
-          this.redrawElements();
-          console.log('Local canvas redrawn after erasing');
         }
         this.isDrawing = false;
       } else if (this.isAddingText) {
