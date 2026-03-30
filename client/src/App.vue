@@ -65,7 +65,7 @@ export default {
     async createMeeting() {
       try {
         this.errorMessage = ''
-        const response = await fetch('http://192.168.248.168:8080/api/create-meeting', {
+        const response = await fetch('http://192.168.153.168:8080/api/create-meeting', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -92,7 +92,7 @@ export default {
     async joinMeeting() {
       try {
         this.errorMessage = ''
-        const response = await fetch('http://192.168.248.168:8080/api/join-meeting', {
+        const response = await fetch('http://192.168.153.168:8080/api/join-meeting', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

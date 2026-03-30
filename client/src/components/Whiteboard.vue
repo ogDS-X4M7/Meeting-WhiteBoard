@@ -178,7 +178,7 @@ export default {
       try {
         // 使用传入的roomCode建立WebSocket连接
         console.log(`与会议室${this.roomCode}建立WebSocket连接`);
-        this.socket = new WebSocket(`ws://192.168.248.168:8080?roomCode=${this.roomCode}`);
+        this.socket = new WebSocket(`ws://192.168.153.168:8080?roomCode=${this.roomCode}`);
         
         this.socket.onopen = () => {
           console.log(`与会议室${this.roomCode}的WebSocket连接成功，readyState: ${this.socket.readyState}`);
@@ -740,13 +740,18 @@ export default {
       // 正常情况，按单词换行
       let currentLine = '';
       const words = text.split(' ');
-      
+      console.log('单词换行结果：',words)
       for (let i = 0; i < words.length; i++) {
         const word = words[i];
         // 检查单个单词是否已经超过最大宽度
         const wordWidth = this.ctx.measureText(word).width;
         if (wordWidth > maxWidth) {
           // 单个单词超过最大宽度，需要按字符换行
+          // 如果前面有单词，直接打印前面的单词，当前字符成为下一行开头
+          if (currentLine) {
+            lines.push(currentLine);
+            currentLine = '';
+          }
           let currentWordLine = '';
           for (let j = 0; j < word.length; j++) {
             const char = word[j];
@@ -782,6 +787,7 @@ export default {
       if (currentLine) {
         lines.push(currentLine);
       }
+      console.log('换行结果：',lines)
       return lines;
     },
     cancelTextInput() {
@@ -1026,7 +1032,7 @@ export default {
           strokeId: this.currentStrokeId
         };
         
-        const response = await fetch('http://192.168.248.168:8080/api/recognize-shape', {
+        const response = await fetch('http://192.168.153.168:8080/api/recognize-shape', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1132,7 +1138,7 @@ export default {
           return;
         }
         
-        const response = await fetch('http://192.168.248.168:8080/api/generate-summary', {
+        const response = await fetch('http://192.168.153.168:8080/api/generate-summary', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
