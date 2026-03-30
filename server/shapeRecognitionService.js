@@ -1,5 +1,4 @@
 // 图形识别服务
-// 由于OpenCV在Windows环境下安装复杂，这里提供一个基于几何算法的模拟实现
 
 class ShapeRecognitionService {
   constructor() {
@@ -141,7 +140,7 @@ class ShapeRecognitionService {
   // 判断是否为矩形
   isRectangle(points, boundingBox, aspectRatio) {
     // 检查边界框的长宽比和点的分布
-    if (aspectRatio < 0.5 || aspectRatio > 2.0 || points.length <= 4) {
+    if (aspectRatio < 0.2 || aspectRatio > 5.0 || points.length <= 4) {
       return false;
     }
 
@@ -233,55 +232,46 @@ class ShapeRecognitionService {
     // 检查点的数量和长宽比
     if (points.length < 4) return false;
 
-    // 计算中心点
+    // 计算标准菱形中心点
     const centerX = boundingBox.x + boundingBox.width / 2;
     const centerY = boundingBox.y + boundingBox.height / 2;
 
-    // 计算四个顶点
+    // 计算标准菱形四个顶点（底部可以不用算）
     const topPoint = { x: centerX, y: boundingBox.y };
     const rightPoint = { x: boundingBox.x + boundingBox.width, y: centerY };
-    const bottomPoint = { x: centerX, y: boundingBox.y + boundingBox.height };
     const leftPoint = { x: boundingBox.x, y: centerY };
+    // 标准菱形系数：只有正负两种，还是相反数，因此算一个就够用了;
+    const k = (topPoint.y - leftPoint.y) / (topPoint.x - leftPoint.x);
+    // 预期距离阈值，以对角线平均值的0.15为参考
+    const inDistance = (boundingBox.width + boundingBox.height) / 2 * 0.2;
 
-    // 检查点是否围绕中心点对称
-    let symmetryScore = 0;
-    let diagonalScore = 0;
-
-    for (const point of points) {
-      // 检查点是否接近菱形的四个顶点之一
-      const distances = [
-        this.calculateDistance(point, topPoint),
-        this.calculateDistance(point, rightPoint),
-        this.calculateDistance(point, bottomPoint),
-        this.calculateDistance(point, leftPoint)
-      ];
-      const minDistance = Math.min(...distances);
-      if (minDistance < boundingBox.width * 0.35) { // 增大阈值，降低识别难度
-        symmetryScore++;
+    // 根据标准菱形的四个顶点，生成标准菱形四条边的坐标函数
+    const edges = (x, y) => {
+      let distance;
+      if (x >= topPoint.x) {
+        let dist1 = Math.abs(k * (x - leftPoint.x) + leftPoint.y - y);
+        let dist2 = Math.abs(-k * (x - leftPoint.x) + leftPoint.y - y);
+        distance = Math.min(dist1, dist2);
+      } else {
+        let dist1 = Math.abs(k * (rightPoint.x - x) + rightPoint.y - y);
+        let dist2 = Math.abs(-k * (rightPoint.x - x) + rightPoint.y - y);
+        distance = Math.min(dist1, dist2);
       }
-
-      // 检查点是否位于菱形的对角线上（这是菱形的重要特征）
-      const distanceToHorizontalCenter = Math.abs(point.y - centerY);
-      const distanceToVerticalCenter = Math.abs(point.x - centerX);
-      if (distanceToHorizontalCenter > 0) {
-        const diagonalRatio = distanceToVerticalCenter / distanceToHorizontalCenter;
-        if (diagonalRatio > 0.4 && diagonalRatio < 1.6) { // 放宽范围，降低识别难度
-          diagonalScore++;
-        }
-      }
+      return distance < inDistance;
     }
 
+    // 检查点是否接近标准菱形
+    let symmetryScore = 0;
+
+    for (const point of points) {
+      if (edges(point.x, point.y)) {
+        symmetryScore++;
+      }
+    }
     // 检测水平和垂直线条，菱形应该较少
     const horizontalVerticalScore = this.detectHorizontalVerticalLines(points);
-
-    // 菱形的特征：
-    // 1. 点集中在四个顶点和对角线上
-    // 2. 水平和垂直线条较少
-    // 3. 长宽比在合理范围内
-    return symmetryScore > points.length * 0.25 && // 降低分数要求
-      diagonalScore > points.length * 0.15 && // 降低分数要求
-      horizontalVerticalScore < points.length * 0.4 && // 放宽限制
-      aspectRatio > 0.3 && aspectRatio < 3.0; // 放宽长宽比范围
+    return symmetryScore > points.length * 0.35 &&
+      horizontalVerticalScore < points.length * 0.4;
   }
 
   // 计算数组的方差
