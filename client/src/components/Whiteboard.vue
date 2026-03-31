@@ -111,6 +111,7 @@ export default {
       elements: [],
       socket: null,
       socketId: null,
+      errorUndoBeautify: false,
       isRecording: false,
       transcription: '',
       audioContext: null,
@@ -291,6 +292,10 @@ export default {
               // 服务器会广播canvasState消息，所以这里不需要做任何操作
               // 只需要等待canvasState消息即可
               console.log(`收到undoBeautify消息，等待canvasState更新`);
+            } else if (data.type === 'errorBeautify') {
+              // 处理撤销美化错误
+              this.errorUndoBeautify = true;
+              this.showToastMessage(data.data, 'error');
             }
           } catch (error) {
             console.error(`处理WebSocket消息时出错: ${error}`);
@@ -1096,16 +1101,23 @@ export default {
         const userConfirmed = confirm('撤销美化会将画面恢复到上一次美化前的状态，美化后添加的内容会被清除。确定要继续吗？');
         console.log('用户确认状态:', userConfirmed);
         if (userConfirmed) {
-          // 恢复原始元素
-          this.elements = this.originalElements.elements;
-          // 清空原始元素的保存
-          const strokeId = this.originalElements.strokeId;
-          this.originalElements = null;
-          // 重新绘制画布
-          this.redrawCanvas();
           // 发送撤销美化指令到服务器，包含strokeId
+          const strokeId = this.originalElements.strokeId;
           this.sendWebSocketMessage('undoBeautify', { strokeId });
-          console.log('已执行撤销美化操作');
+          // 等待服务器处理完成
+          setTimeout(() => {
+            // 只有当前用户是房间最新美化操作才能撤回
+            if(!this.errorUndoBeautify){
+              // 恢复原始元素
+              this.elements = this.originalElements.elements;
+              // 重新绘制画布
+              this.redrawCanvas();
+              console.log('已执行撤销美化操作');
+            }
+            this.errorUndoBeautify = false;
+            // 清空原始元素的保存
+              this.originalElements = null;
+          }, 1000);
         } else {
           console.log('用户取消了撤销美化操作');
         }
