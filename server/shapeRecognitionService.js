@@ -21,16 +21,17 @@ class ShapeRecognitionService {
         const centerX = boundingBox.x + boundingBox.width / 2;
         const centerY = boundingBox.y + boundingBox.height / 2;
 
-        // // 计算所有点到中心点的平均距离，作为半径
-        // let totalDistance = 0;
-        // for (const point of points) {
-        //   const distance = Math.sqrt(Math.pow(point.x - centerX, 2) + Math.pow(point.y - centerY, 2));
-        //   totalDistance += distance;
-        // }
+        // 计算所有点到中心点的最大距离，作为半径
+        let maxDistance = 0;
+        for (const point of points) {
+          const distance = Math.sqrt(Math.pow(point.x - centerX, 2) + Math.pow(point.y - centerY, 2));
+          if (distance > maxDistance) {
+            maxDistance = distance;
+          }
+        }
 
-        // // 使用平均距离作为半径，确保美化后的圆形大小与用户绘制的一致
-        // const radius = totalDistance / points.length;
-        const radius = boundingBox.width / 2;
+        // 使用最大距离作为半径，确保美化后的圆形大小与用户绘制的一致
+        const radius = maxDistance;
         return {
           type: 'circle',
           center: { x: centerX, y: centerY },
@@ -147,7 +148,7 @@ class ShapeRecognitionService {
     const horizontalVerticalScore = this.detectHorizontalVerticalLines(points);
 
     // 矩形应该有明显的水平和垂直线条
-    return horizontalVerticalScore > points.length * 0.6;
+    return horizontalVerticalScore > points.length * 0.4;
   }
 
   // 检测水平和垂直线条
