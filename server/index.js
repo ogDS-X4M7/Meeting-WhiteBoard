@@ -283,13 +283,24 @@ wss.on('connection', (ws, req, roomCode) => {
       }
       if (parsed.type === 'undoBeautify') {
         const room = meetingRoomManager.getRoom(roomCode);
+        const { strokeId } = parsed.data;
         if (room?.beautifyState) {
-          meetingRoomManager.updateCanvasState(roomCode, room.beautifyState.originalState);
-          room.beautifyState = null;
-          meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
-            type: 'canvasState',
-            data: meetingRoomManager.getCanvasState(roomCode)
-          }), ws.id);
+          // 因为可能有多用户操作，如果用户申请撤回美化的操作不是当前最新的美化操作，则驳回，
+          // 否则其他用户的美化操作会因为撤回而直接移除
+          if (strokeId !== room.beautifyState.strokeId) {
+            ws.send(JSON.stringify({
+              type: 'errorBeautify',
+              data: '其他用户已执行美化操作，撤回可能带来意外结果，建议您选择橡皮擦拭重绘'
+            }));
+            return;
+          } else {
+            meetingRoomManager.updateCanvasState(roomCode, room.beautifyState.originalState);
+            room.beautifyState = null;
+            meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
+              type: 'canvasState',
+              data: meetingRoomManager.getCanvasState(roomCode)
+            }), ws.id);
+          }
         }
       }
     } catch (e) { }
