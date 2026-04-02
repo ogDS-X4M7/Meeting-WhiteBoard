@@ -934,6 +934,17 @@ export default {
         // 连接音频节点
         source.connect(processor);
         processor.connect(audioContext.destination);
+
+        // ai建议创建静音节点(增益节点，将增益设置为0让本地音频静音)，
+        // 但是应该是浏览器硬件本身支持回声抑制 / AEC + 硬件降噪，本来就听不到自己回声（正常现象）
+        // 因此这里没有使用，依旧直接使用上面的方案，增益节点只留一份注释参考
+        // // 创建静音节点，防止听到自己声音
+        // const gainNode = audioContext.createGain();
+        // gainNode.gain.value = 0;
+
+        // source.connect(processor);
+        // processor.connect(gainNode);
+        // gainNode.connect(audioContext.destination);
         
         this.isRecording = true;
         this.audioContext = audioContext;
