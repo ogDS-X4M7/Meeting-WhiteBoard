@@ -108,52 +108,58 @@ class SpeechService {
   }
 
   // 发送音频数据
-  sendAudio(webSocketFrame) {
+  sendAudio(audioData) {
     if (!this.isConnected) return;
-
-    // 提取WebSocket帧中的音频数据
-    let audioData = webSocketFrame;
-    if (Buffer.isBuffer(webSocketFrame)) {
-      // 解析WebSocket帧
-      const firstByte = webSocketFrame[0];
-      const isFinal = (firstByte & 0x80) !== 0;
-      const opCode = firstByte & 0x0F;
-
-      if (opCode === 2) { // 二进制消息
-        const secondByte = webSocketFrame[1];
-        const isMasked = (secondByte & 0x80) !== 0;
-        let payloadLength = secondByte & 0x7F;
-        let offset = 2;
-
-        if (payloadLength === 126) {
-          payloadLength = webSocketFrame.readUInt16BE(offset);
-          offset += 2;
-        } else if (payloadLength === 127) {
-          payloadLength = Number(webSocketFrame.readBigUInt64BE(offset));
-          offset += 8;
-        }
-
-        if (isMasked) {
-          const mask = webSocketFrame.slice(offset, offset + 4);
-          offset += 4;
-          const payload = webSocketFrame.slice(offset, offset + payloadLength);
-
-          // 解掩码
-          for (let i = 0; i < payload.length; i++) {
-            payload[i] ^= mask[i % 4];
-          }
-
-          audioData = payload;
-        } else {
-          audioData = webSocketFrame.slice(offset, offset + payloadLength);
-        }
-      }
-    }
 
     // 发送提取出的音频数据
     if (audioData && audioData.length > 0) {
       this.ws.send(audioData, { binary: true });
     }
+
+    // 上一轮的websocket传输数据时已经解析完毕，因此这里的websocke帧解析完全是多余的
+    // // 提取WebSocket帧中的音频数据
+    // let audioData = webSocketFrame;
+    // if (Buffer.isBuffer(webSocketFrame)) {
+    //   // 解析WebSocket帧
+    //   const firstByte = webSocketFrame[0];
+    //   const isFinal = (firstByte & 0x80) !== 0;
+    //   const opCode = firstByte & 0x0F;
+
+    //   if (opCode === 2) { // 二进制消息
+    //     const secondByte = webSocketFrame[1];
+    //     const isMasked = (secondByte & 0x80) !== 0;
+    //     let payloadLength = secondByte & 0x7F;
+    //     let offset = 2;
+
+    //     if (payloadLength === 126) {
+    //       payloadLength = webSocketFrame.readUInt16BE(offset);
+    //       offset += 2;
+    //     } else if (payloadLength === 127) {
+    //       payloadLength = Number(webSocketFrame.readBigUInt64BE(offset));
+    //       offset += 8;
+    //     }
+
+    //     if (isMasked) {
+    //       const mask = webSocketFrame.slice(offset, offset + 4);
+    //       offset += 4;
+    //       const payload = webSocketFrame.slice(offset, offset + payloadLength);
+
+    //       // 解掩码
+    //       for (let i = 0; i < payload.length; i++) {
+    //         payload[i] ^= mask[i % 4];
+    //       }
+
+    //       audioData = payload;
+    //     } else {
+    //       audioData = webSocketFrame.slice(offset, offset + payloadLength);
+    //     }
+    //   }
+    // }
+
+    // // 发送提取出的音频数据
+    // if (audioData && audioData.length > 0) {
+    //   this.ws.send(audioData, { binary: true });
+    // }
   }
 
   // 发送结束标志
