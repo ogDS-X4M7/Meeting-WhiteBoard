@@ -999,7 +999,6 @@ export default {
           this.bufferTimer = null;
           console.log('停止转录缓冲区处理定时器');
         }
-        
         // 最后一次合并转录结果
         this.mergeTranscriptionResults();
         
@@ -1138,6 +1137,8 @@ export default {
     },
     async generateSummary() {
       try {
+        // 先合并转录结果
+        this.mergeTranscriptionResults();
         // 提取白板内容
         const whiteboardContent = this.elements.map(element => {
           if (element.type === 'text') {
@@ -1201,6 +1202,8 @@ export default {
     },
     // 打印所有发言内容
     printTranscriptionHistory() {
+      // 先合并转录结果
+      this.mergeTranscriptionResults();
       console.log('所有发言内容:');
       if (this.transcriptionHistory.length > 0) {
         this.transcriptionHistory.forEach((content, index) => {
@@ -1245,93 +1248,102 @@ export default {
       
       // 按时间排序
       this.transcriptionBuffer.sort((a, b) => a.timestamp - b.timestamp);
+
+      // 带有时间的结果数组
+      const textWIthTime = [];
       
-      // 按发言人分组
+      // 按发言人分组，携带时间信息
       const groupedBySpeaker = {};
       this.transcriptionBuffer.forEach(item => {
         if (item.text && item.text.trim() !== '') {
           if (!groupedBySpeaker[item.speaker]) {
             groupedBySpeaker[item.speaker] = [];
           }
-          groupedBySpeaker[item.speaker].push(item.text);
+          groupedBySpeaker[item.speaker].push(item);
         }
       });
       
-      // 处理每个发言人的转录结果
+      // 按发言人分组对转录结果进行去重，多人发言内容同时去重的话泰国混乱
       for (const speaker in groupedBySpeaker) {
-        const texts = groupedBySpeaker[speaker];
+        const items = groupedBySpeaker[speaker];
         // 去除前缀重复的内容，只保留最长的版本
-        const uniqueTexts = this.removePrefixDuplicates(texts);
+        const uniqueItems = this.removePrefixDuplicates(items);
         
-        // 将去重后的结果添加到历史记录
-        uniqueTexts.forEach(text => {
-          const transcriptionItem = { speaker, text };
-          // 检查是否与历史记录最后一条完全重复
-          if (this.transcriptionHistory.length === 0) {
-            // 如果历史记录为空，直接添加
-            this.transcriptionHistory.push(transcriptionItem);
-            console.log('添加到转录历史:', transcriptionItem);
-          } else {
-            const lastItem = this.transcriptionHistory[this.transcriptionHistory.length - 1];
-            
-            // 检查是否是同一个发言人
-            if (lastItem.speaker === speaker) {
-              // 检查当前文本是否是历史记录最后一条的前缀
-              if (this.isPrefixWithPunctuation(text, lastItem.text)) {
-                // 如果是前缀，不添加
-                console.log('当前文本是历史记录最后一条的前缀，不添加:', text);
-              } 
-              // 检查历史记录最后一条是否是当前文本的前缀
-              else if (this.isPrefixWithPunctuation(lastItem.text, text)) {
-                // 如果是前缀，替换历史记录最后一条
-                this.transcriptionHistory[this.transcriptionHistory.length - 1] = transcriptionItem;
-                console.log('替换历史记录最后一条:', transcriptionItem);
-              } 
-              // 如果不是前缀关系，且不完全重复，添加到历史记录
-              else if (lastItem.text !== text) {
-                this.transcriptionHistory.push(transcriptionItem);
-                console.log('添加到转录历史:', transcriptionItem);
-              }
-            } else {
-              // 不同发言人，直接添加
+        // 将去重后的结果添加到时间结果数组
+        uniqueItems.forEach(item => {
+          textWIthTime.push(item);
+        });
+      }
+
+      // 时间结果数组中存储了携带时间、去重完毕的发言结果，排序后提取文本内容
+      textWIthTime.sort((a, b) => a.timestamp - b.timestamp);
+      textWIthTime.forEach(item => {
+        const transcriptionItem = { speaker: item.speaker, text: item.text };
+        if (this.transcriptionHistory.length === 0) {
+          // 如果历史记录为空，直接添加
+          this.transcriptionHistory.push(transcriptionItem);
+          console.log('添加到转录历史:', transcriptionItem);
+        } else {
+          const lastItem = this.transcriptionHistory[this.transcriptionHistory.length - 1];
+          
+          // 检查是否是同一个发言人
+          if (lastItem.speaker === item.speaker) {
+            // 检查当前文本是否是历史记录最后一条的前缀
+            if (this.isPrefixWithPunctuation(item.text, lastItem.text)) {
+              // 如果是前缀，不添加
+              console.log('当前文本是历史记录最后一条的前缀，不添加:', item.text);
+            } 
+            // 检查历史记录最后一条是否是当前文本的前缀
+            else if (this.isPrefixWithPunctuation(lastItem.text, item.text)) {
+              // 如果是前缀，替换历史记录最后一条
+              this.transcriptionHistory[this.transcriptionHistory.length - 1] = transcriptionItem;
+              console.log('替换历史记录最后一条:', transcriptionItem);
+            } 
+            // 如果不是前缀关系，且不完全重复，添加到历史记录
+            else if (lastItem.text !== item.text) {
               this.transcriptionHistory.push(transcriptionItem);
               console.log('添加到转录历史:', transcriptionItem);
             }
+          } else {
+            // 不同发言人，直接添加
+            this.transcriptionHistory.push(transcriptionItem);
+            console.log('添加到转录历史:', transcriptionItem);
           }
-        });
-      }
+        }
+      });
       
       // 清空缓冲区
       this.transcriptionBuffer = [];
     },
     
     // 去除前缀重复的内容，只保留最长的版本
-    removePrefixDuplicates(texts) {
-      if (texts.length <= 1) return texts;
+    removePrefixDuplicates(items) {
+      if (items.length <= 1) return items;
       
-      // 按长度降序排序
-      texts.sort((a, b) => b.length - a.length);
+      // 按长度降序排序，必须携带时间信息这里才能按照长度去排序，否则会破坏时间顺序
+      // 长度排序是为了方便后续的前缀检查，最长的先进入数组，确保前缀检查时，最长的文本在数组的前面，不需要替换
+      items.sort((a, b) => b.text.length - a.text.length);
       
-      const uniqueTexts = [];
+      const uniqueItems = [];
       
-      for (let i = 0; i < texts.length; i++) {
-        const currentText = texts[i];
+      for (let i = 0; i < items.length; i++) {
+        const currentItem = items[i];
         let isPrefix = false;
         
-        // 检查是否是已添加文本的前缀（忽略开头的标点符号）
-        for (let j = 0; j < uniqueTexts.length; j++) {
-          if (this.isPrefixWithPunctuation(currentText, uniqueTexts[j])) {
+        // 检查是否是已添加文本的前缀（忽略标点符号）
+        for (let j = 0; j < uniqueItems.length; j++) {
+          if (this.isPrefixWithPunctuation(currentItem.text, uniqueItems[j].text  )) {
             isPrefix = true;
             break;
           }
         }
         
         if (!isPrefix) {
-          uniqueTexts.push(currentText);
+          uniqueItems.push(currentItem);
         }
       }
       
-      return uniqueTexts;
+      return uniqueItems;
     },
     
     // 检查text1是否是text2的前缀（忽略所有标点符号）
