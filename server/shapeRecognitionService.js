@@ -16,7 +16,16 @@ class ShapeRecognitionService {
       const aspectRatio = (boundingBox.width / boundingBox.height);
 
       // 基于几何特征识别图形
-      if (this.isCircle(points, center, area, perimeter)) {
+      if (this.isRectangle(points, boundingBox, aspectRatio)) {
+        return {
+          type: 'rectangle',
+          x: boundingBox.x,
+          y: boundingBox.y,
+          width: boundingBox.width,
+          height: boundingBox.height,
+          confidence: 0.85
+        };
+      } else if (this.isCircle(points, center, area, perimeter)) {
         // 计算中心点
         const centerX = boundingBox.x + boundingBox.width / 2;
         const centerY = boundingBox.y + boundingBox.height / 2;
@@ -36,15 +45,6 @@ class ShapeRecognitionService {
           center: { x: centerX, y: centerY },
           radius: radius,
           confidence: 0.9
-        };
-      } else if (this.isRectangle(points, boundingBox, aspectRatio)) {
-        return {
-          type: 'rectangle',
-          x: boundingBox.x,
-          y: boundingBox.y,
-          width: boundingBox.width,
-          height: boundingBox.height,
-          confidence: 0.85
         };
       } else if (this.isDiamond(points, boundingBox, aspectRatio)) {
         return {

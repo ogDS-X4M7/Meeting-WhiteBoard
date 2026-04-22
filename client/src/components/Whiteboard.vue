@@ -1,4 +1,86 @@
 <template>
+  <div class="leftToolBar">
+    <div>
+      <button @click="setTool('pen')" :class="{ active: currentTool === 'pen' }" title="画笔">
+        <img class="icon" src="../assets/pen.png" alt="pen" />
+      </button>
+    </div>
+    <div>
+      <button @click="setTool('eraser')" :class="{ active: currentTool === 'eraser' }" title="橡皮">
+        <img class="icon" src="../assets/eraser.png" alt="eraser" />
+      </button>
+    </div>
+    <div>
+      <button @click="setTool('text')" :class="{ active: currentTool === 'text' }" title="文本">
+        <img class="icon" src="../assets/text.png" alt="text" />
+      </button>
+    </div>
+    <div>
+      <button @click="setTool('mouse')" :class="{ active: currentTool === 'mouse' }" title="鼠标">
+        <img class="icon" src="../assets/Cursor.png" alt="mouse" />
+      </button>
+    </div>
+    <div>
+      <button @click="setTool('rectangle')" :class="{ active: currentTool === 'rectangle' }" title="矩形">
+        <img class="icon" src="../assets/Rectangle.png" alt="rectangle" />
+      </button>
+    </div>
+    <div>
+      <button @click="setTool('circle')" :class="{ active: currentTool === 'circle' }" title="圆形">
+        <img class="icon" src="../assets/round.png" alt="circle" />
+      </button>
+    </div>
+    <div>
+      <button @click="setTool('diamond')" :class="{ active: currentTool === 'diamond' }" title="菱形">
+        <img class="icon" src="../assets/rhombus.png" alt="diamond" />
+      </button>
+    </div>
+    <div>
+      <button @click="setTool('arrow')" :class="{ active: currentTool === 'arrow' }" title="箭头">
+        <img class="icon" src="../assets/arrow.png" alt="arrow" />
+      </button>
+    </div>
+    <div>
+      <button @click="clearCanvas" title="清空">
+        <img class="icon" src="../assets/clear.png" alt="clear" />
+      </button>
+    </div>
+    <div>
+      <button @click="exportCanvas" title="导出">
+        <img class="icon" src="../assets/export.png" alt="export" />
+      </button>
+    </div>
+    <div><input type="color" v-model="color" /></div>
+    <div><span>笔画粗细:</span></div>
+    <div><input type="range" v-model="lineWidth" min="1" max="10" />{{ lineWidth }}px</div>
+    <div><span>文本字体:</span></div>
+    <div><input type="range" v-model="fontSize" min="8" max="48" />{{ fontSize }}px</div>
+  </div>
+  <div class="toolbar">
+    <button @click="toggleSpeechRecognition" :class="{ active: isRecording }" :title="isRecording ? '点击关闭麦克风' : '点击开启麦克风'">
+      <img v-if="isRecording" class="bigImg" src="../assets/microphone.png">
+      <img v-else class="bigImg" src="../assets/microphone_close.png">
+    </button>
+    <button @click="beautifyShape" title="美化图形" >
+      <img class="bigImg" src="../assets/magic-2.png">
+    </button>
+    <button @click="undoBeautify" :disabled="!originalElements" title="撤销美化">
+      <img class="bigImg" src="../assets/retry.png">
+    </button>
+    <button @click="generateSummary" title="生成摘要">
+      <img class="bigImg" src="../assets/summary.png">
+    </button>
+    <!-- <button @click="generateSummary">生成摘要</button>
+    <button @click="printTranscriptionHistory">打印发言内容</button> -->
+    <!-- <div class="nickname-container">
+      <span v-if="!showNicknameInput">{{ nickname }} <button @click="showNicknameInput = true">修改</button></span>
+      <div v-else class="nickname-input">
+        <input v-model="nickname" @keyup.enter="saveNickname" @blur="saveNickname" placeholder="输入昵称" />
+        <button @click="saveNickname">保存</button>
+        <button @click="showNicknameInput = false">取消</button>
+      </div>
+    </div> -->
+  </div>
   <div class="whiteboard-container">
     <canvas
       ref="canvas"
@@ -9,40 +91,7 @@
       @mouseup="stopDrawing"
       @mouseleave="stopDrawing"
     ></canvas>
-    <div class="toolbar">
-      <button @click="setTool('pen')" :class="{ active: currentTool === 'pen' }">画笔</button>
-      <button @click="setTool('eraser')" :class="{ active: currentTool === 'eraser' }">橡皮</button>
-      <button @click="setTool('text')" :class="{ active: currentTool === 'text' }">文本</button>
-      <button @click="setTool('mouse')" :class="{ active: currentTool === 'mouse' }">鼠标</button>
-      <button @click="setTool('rectangle')" :class="{ active: currentTool === 'rectangle' }">矩形</button>
-      <button @click="setTool('circle')" :class="{ active: currentTool === 'circle' }">圆形</button>
-      <button @click="setTool('diamond')" :class="{ active: currentTool === 'diamond' }">菱形</button>
-      <button @click="setTool('arrow')" :class="{ active: currentTool === 'arrow' }">箭头</button>
-      <input type="color" v-model="color" />
-      <span>笔画粗细:</span>
-      <input type="range" v-model="lineWidth" min="1" max="10" />
-      <span>{{ lineWidth }}px</span>
-      <span>字体大小:</span>
-      <input type="range" v-model="fontSize" min="8" max="48" />
-      <span>{{ fontSize }}px</span>
-      <button @click="clearCanvas">清空</button>
-      <button @click="exportCanvas">导出</button>
-      <button @click="toggleSpeechRecognition" :class="{ active: isRecording }">
-        {{ isRecording ? '停止录音' : '开始录音' }}
-      </button>
-      <button @click="beautifyShape">美化图形</button>
-      <button @click="undoBeautify" :disabled="!originalElements">撤销美化</button>
-      <button @click="generateSummary">生成摘要</button>
-      <button @click="printTranscriptionHistory">打印发言内容</button>
-      <div class="nickname-container">
-        <span v-if="!showNicknameInput">{{ nickname }} <button @click="showNicknameInput = true">修改</button></span>
-        <div v-else class="nickname-input">
-          <input v-model="nickname" @keyup.enter="saveNickname" @blur="saveNickname" placeholder="输入昵称" />
-          <button @click="saveNickname">保存</button>
-          <button @click="showNicknameInput = false">取消</button>
-        </div>
-      </div>
-    </div>
+    
     <div v-if="summary" class="summary-container">
       <h4>会议摘要:</h4>
       <div class="summary-content" v-html="summary"></div>
@@ -92,7 +141,7 @@ export default {
   data() {
     return {
       // 白板属性
-      width: 800,
+      width: 1200,
       height: 600,
       // 画笔属性
       color: '#000000',
@@ -1127,7 +1176,7 @@ export default {
             this.errorUndoBeautify = false;
             // 清空原始元素的保存
               this.originalElements = null;
-          }, 1000);
+          }, 300);
         } else {
           console.log('用户取消了撤销美化操作');
         }
@@ -1192,14 +1241,14 @@ export default {
       this.summary = '';
     },
     // 保存昵称
-    saveNickname() {
-      if (this.nickname) {
-        localStorage.setItem('nickname', this.nickname);
-        // 发送昵称更新消息到服务器
-        this.sendWebSocketMessage('updateNickname', { nickname: this.nickname });
-        this.showNicknameInput = false;
-      }
-    },
+    // saveNickname() {
+    //   if (this.nickname) {
+    //     localStorage.setItem('nickname', this.nickname);
+    //     // 发送昵称更新消息到服务器
+    //     this.sendWebSocketMessage('updateNickname', { nickname: this.nickname });
+    //     this.showNicknameInput = false;
+    //   }
+    // },
     // 打印所有发言内容
     printTranscriptionHistory() {
       // 先合并转录结果
@@ -1437,11 +1486,14 @@ export default {
 };
 </script>
 
-<style scoped>
+<style scoped lang="less">
 .whiteboard-container {
   position: relative;
-  width: 800px;
-  height: 600px;
+  max-width: 1210px;
+  max-height: 610px;
+  width: 76vw;
+  height: 38vw;
+  overflow: auto;
   border: 1px solid #ccc;
   margin: 0 auto;
 }
@@ -1452,26 +1504,36 @@ canvas {
 }
 
 .toolbar {
-  position: absolute;
-  top: 10px;
-  left: 10px;
+  // position: absolute;;
+  // top: 10px;
+  // left: 10px;
   display: flex;
-  gap: 10px;
+  justify-content: center;
+  // justify-content: space-around;
+  margin-bottom: 1vw;
+  // gap: 10px;
+  color: #333;
   background-color: rgba(255, 255, 255, 0.8);
-  padding: 10px;
+  padding: 1vw;
   border-radius: 5px;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
   flex-wrap: wrap;
 }
 
 button {
-  padding: 5px 10px;
+  margin: 0 1vw;
+  padding: 0.5vw;
   border: none;
   background-color: #007bff;
   color: white;
   border-radius: 3px;
   cursor: pointer;
   font-size: 14px;
+  .bigImg {
+    width: 3vw;
+    height: 3vw;
+    vertical-align: middle;
+  }
 }
 
 button:hover {
@@ -1484,8 +1546,8 @@ button.active {
 }
 
 input[type="color"] {
-  width: 40px;
-  height: 30px;
+  width: 4vw;
+  height: 3vw;
   border: none;
   cursor: pointer;
 }
@@ -1687,34 +1749,6 @@ input[type="range"] {
   margin-right: 8px;
 }
 
-.nickname-container {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: #333;
-  font-size: 14px;
-}
-
-.nickname-input {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.nickname-input input {
-  padding: 3px 6px;
-  border: 1px solid #ccc;
-  border-radius: 3px;
-  font-size: 14px;
-  width: 120px;
-}
-
-.nickname-container button {
-  font-size: 12px;
-  padding: 2px 6px;
-  margin-left: 5px;
-}
-
 @keyframes slideIn {
   from {
     transform: translateX(100%);
@@ -1736,4 +1770,40 @@ input[type="range"] {
     transform: translateY(0);
   }
 }
+
+.leftToolBar {
+  position: absolute;
+  left: 2%;
+  width: 6vw;
+  gap: 10px;
+  background-color: rgba(255, 255, 255, 0.8);
+  padding: 0.5vw;
+  border-radius: 5px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  color: #333;
+  div {
+    margin: 1vh 0;
+    font-size: 0.8vw;
+    button {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      max-width: 3vw;
+      max-height: 3vw;
+      font-size: 1vw;
+      padding: 0.5vw;
+      .icon {
+        width: 1.5vw;
+        height: 1.5vw;
+      }
+    }
+    input {
+      max-width: 3vw;
+      max-height: 3vw;
+    }
+  }
+}
+// display: flex;
+// flex-wrap: wrap;
 </style>
