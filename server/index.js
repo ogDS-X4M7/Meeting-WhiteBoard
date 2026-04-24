@@ -48,7 +48,8 @@ class MeetingRoomManager {
       lastActivityTime: new Date(),
       members: [],
       canvasState: [],
-      beautifyState: null
+      // beautifyState: null,
+      beautifyStates: [],
     };
     this.rooms.set(code, room);
     return room;
@@ -65,7 +66,8 @@ class MeetingRoomManager {
         lastActivityTime: new Date(),
         members: [],
         canvasState: [],
-        beautifyState: null
+        beautifyState: null,
+        beautifyStates: [],
       };
       this.rooms.set(code, room);
     }
@@ -232,6 +234,8 @@ wss.on('connection', (ws, req, roomCode) => {
       }
       if (parsed.type === 'clear') {
         meetingRoomManager.updateCanvasState(roomCode, []);
+        const room = meetingRoomManager.getRoom(roomCode);
+        room.beautifyStates = [];
         meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
           type: 'clear'
         }), ws.id);
@@ -248,9 +252,18 @@ wss.on('connection', (ws, req, roomCode) => {
         const curr = meetingRoomManager.getCanvasState(roomCode);
         const room = meetingRoomManager.getRoom(roomCode);
         if (room && strokeId) {
-          room.beautifyState = { originalState: [...curr], strokeId };
+          // room.beautifyState = { originalState: [...curr], strokeId };
+          // 存储美化前绘制内容
+          let item = { state: [], strokeId };
+          curr.forEach(e => {
+            if (e.type === 'pen' && e.strokeId === strokeId) {
+              item.state.push(e);
+            }
+          });
+          room.beautifyStates.push(item);
         }
-        let updated = strokeId ? curr.filter(e => !(e.type === 'pen' && e.strokeId === strokeId)) : curr.filter(e => e.type !== 'pen');
+        // let updated = strokeId ? curr.filter(e => !(e.type === 'pen' && e.strokeId === strokeId)) : curr.filter(e => e.type !== 'pen');
+        let updated = curr.filter(e => !(e.type === 'pen' && e.strokeId === strokeId));
         updated.push(newElement);
         meetingRoomManager.updateCanvasState(roomCode, updated);
         meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
@@ -284,23 +297,46 @@ wss.on('connection', (ws, req, roomCode) => {
       if (parsed.type === 'undoBeautify') {
         const room = meetingRoomManager.getRoom(roomCode);
         const { strokeId } = parsed.data;
-        if (room?.beautifyState) {
-          // 因为可能有多用户操作，如果用户申请撤回美化的操作不是当前最新的美化操作，则驳回，
-          // 否则其他用户的美化操作会因为撤回而直接移除
-          if (strokeId !== room.beautifyState.strokeId) {
-            ws.send(JSON.stringify({
-              type: 'errorBeautify',
-              data: '其他用户已执行美化操作，撤回可能带来意外结果，建议您选择橡皮擦拭重绘'
-            }));
-            return;
-          } else {
-            meetingRoomManager.updateCanvasState(roomCode, room.beautifyState.originalState);
-            room.beautifyState = null;
+        const curr = meetingRoomManager.getCanvasState(roomCode);
+        if (room?.beautifyStates.length) {
+          // 找到要撤销的美化操作
+          let getItem = room.beautifyStates.find(item => item.strokeId === strokeId);
+          if (getItem) {
+            // 从当前canvas中移除美化后内容
+            let updated = curr.filter(e => !(e.strokeId === strokeId));
+            // 将美化前内容添加到新内容中
+            updated.push(...getItem.state);
+            // 即将完成撤销，那么旧内容不需要保存，过滤掉即可
+            room.beautifyStates = room.beautifyStates.filter(item => item.strokeId !== strokeId);
+            // 将房间canvas更新为新内容，广播
+            meetingRoomManager.updateCanvasState(roomCode, updated);
             meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
               type: 'canvasState',
               data: meetingRoomManager.getCanvasState(roomCode)
             }), ws.id);
+          } else {
+            ws.send(JSON.stringify({
+              type: 'errorBeautify',
+              data: '撤销的美化操作不存在，strokeId匹配异常'
+            }));
+            return;
           }
+          // 因为可能有多用户操作，如果用户申请撤回美化的操作不是当前最新的美化操作，则驳回，
+          // 否则其他用户的美化操作会因为撤回而直接移除
+          // if (strokeId !== room.beautifyState.strokeId) {
+          //   ws.send(JSON.stringify({
+          //     type: 'errorBeautify',
+          //     data: '其他用户已执行美化操作，撤回可能带来意外结果，建议您选择橡皮擦拭重绘'
+          //   }));
+          //   return;
+          // } else {
+          //   meetingRoomManager.updateCanvasState(roomCode, room.beautifyState.originalState);
+          //   room.beautifyState = null;
+          //   meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
+          //     type: 'canvasState',
+          //     data: meetingRoomManager.getCanvasState(roomCode)
+          //   }), ws.id);
+          // }
         }
       }
     } catch (e) { }

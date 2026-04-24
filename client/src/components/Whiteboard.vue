@@ -64,7 +64,7 @@
     <button @click="beautifyShape" title="美化图形" >
       <img class="bigImg" src="../assets/magic-2.png">
     </button>
-    <button @click="undoBeautify" :disabled="!originalElements" title="撤销美化">
+    <button @click="undoBeautify" :disabled="originalElement.length === 0" title="撤销美化">
       <img class="bigImg" src="../assets/no-magic.png">
     </button>
     <button @click="generateSummary" title="生成摘要">
@@ -171,12 +171,13 @@ export default {
       transcriptionHistory: [],
       transcriptionBuffer: [], // 转录缓冲区，用于存储时间窗口内的结果
       bufferTimer: null, // 定期检查缓冲区的定时器
-      originalElements: null, // 原始元素，用于撤销美化
+      originalElement: [],
       showToast: false,
       toastMessage: '',
       toastType: 'info',
       strokeId: 0, // 绘制的笔画id
       currentStrokeId: null,
+      beautifyStrokeId: null,
       // 音频播放相关
       playbackAudioContext: null,
       audioDestination: null,
@@ -905,10 +906,17 @@ export default {
       this.redrawElements();
     },
     clearCanvas() {
-      this.ctx.clearRect(0, 0, this.width, this.height);
-      this.elements = [];
-      // 发送到服务器
-      this.sendWebSocketMessage('clear', {});
+      // 显示确认弹窗
+      const userConfirmed = confirm('确定要清空画布吗？');
+      console.log('用户确认状态:', userConfirmed);
+      if (userConfirmed) {
+        this.ctx.clearRect(0, 0, this.width, this.height);
+        this.elements = [];
+        // 发送到服务器
+        this.sendWebSocketMessage('clear', {});
+      } else {
+        console.log('用户取消');
+      }
     },
     exportCanvas() {
       const dataURL = this.canvas.toDataURL('image/png');
@@ -1106,11 +1114,13 @@ export default {
       }
       
       try {
-        // 保存原始元素和当前strokeId，用于撤销美化
-        this.originalElements = {
-          elements: JSON.parse(JSON.stringify(this.elements)),
-          strokeId: this.currentStrokeId
-        };
+        // 保存原始元素和当前strokeId，用于撤销美化，有大量元素，不能直接find
+        // this.originalElement = this.elements.find(element => element.strokeId === this.currentStrokeId); 
+        this.elements.forEach(element => {
+          if (element.strokeId === this.currentStrokeId) {
+            this.originalElement.push(element);
+          }
+        })
         
         const response = await fetch('http://192.168.153.168:8080/api/recognize-shape', {
           method: 'POST',
@@ -1137,9 +1147,12 @@ export default {
             const newElement = {
               ...beautifiedShape,
               color: this.color,
-              lineWidth: this.lineWidth
+              lineWidth: this.lineWidth,
+              strokeId: this.currentStrokeId,
             };
             this.elements.push(newElement);
+            // 保存当前美化操作的strokeId，用于撤销美化
+            this.beautifyStrokeId = this.currentStrokeId;
             
             // 发送美化消息到服务器，包含strokeId和新的美化元素
             console.log('发送美化消息:', {
@@ -1155,47 +1168,44 @@ export default {
             this.redrawCanvas();
           } else {
             // 如果识别为pen类型，不进行美化，清除原始元素的保存
-            this.originalElements = null;
+            this.originalElement = [];
             // 显示提示
             this.showToastMessage('无法识别为规则图形，保持原始绘制', 'info');
           }
         } else {
           console.error('图形美化失败:', result.error);
           // 如果美化失败，清除原始元素的保存
-          this.originalElements = null;
+          this.originalElement = [];
         }
       } catch (error) {
         console.error('发送图形数据失败:', error);
         // 如果发生错误，清除原始元素的保存
-        this.originalElements = null;
+        this.originalElement = [];
       }
     },
     undoBeautify() {
-      if (this.originalElements) {
-        // 显示确认弹窗
-        const userConfirmed = confirm('撤销美化会将画面恢复到上一次美化前的状态，美化后添加的内容会被清除。确定要继续吗？');
-        console.log('用户确认状态:', userConfirmed);
-        if (userConfirmed) {
-          // 发送撤销美化指令到服务器，包含strokeId
-          const strokeId = this.originalElements.strokeId;
-          this.sendWebSocketMessage('undoBeautify', { strokeId });
-          // 等待服务器处理完成
-          setTimeout(() => {
-            // 只有当前用户是房间最新美化操作才能撤回
-            if(!this.errorUndoBeautify){
-              // 恢复原始元素
-              this.elements = this.originalElements.elements;
-              // 重新绘制画布
-              this.redrawCanvas();
-              console.log('已执行撤销美化操作');
+      if (this.originalElement.length > 0) {
+        // 发送撤销美化指令到服务器，包含strokeId
+        const strokeId = this.originalElement[0].strokeId;
+        this.sendWebSocketMessage('undoBeautify', { strokeId });
+        // 等待服务器处理完成
+        setTimeout(() => {
+          // 只有当前用户是房间最新美化操作才能撤回
+          if(!this.errorUndoBeautify){
+            // 恢复原始元素
+            if (this.beautifyStrokeId) {
+              this.elements = this.elements.filter(element => !(element.strokeId == this.beautifyStrokeId));
             }
-            this.errorUndoBeautify = false;
-            // 清空原始元素的保存
-              this.originalElements = null;
-          }, 300);
-        } else {
-          console.log('用户取消了撤销美化操作');
-        }
+            // 添加美化前的图形
+            this.elements.push(...this.originalElement);
+            // 重新绘制画布
+            this.redrawCanvas();
+            console.log('已执行撤销美化操作');
+          }
+          this.errorUndoBeautify = false;
+          // 清空原始元素的保存
+          this.originalElement = [];
+        }, 300);
       } else {
         console.log('没有可撤销的美化操作');
       }
