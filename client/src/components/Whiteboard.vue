@@ -65,7 +65,7 @@
       <img class="bigImg" src="../assets/magic-2.png">
     </button>
     <button @click="undoBeautify" :disabled="!originalElements" title="撤销美化">
-      <img class="bigImg" src="../assets/retry.png">
+      <img class="bigImg" src="../assets/no-magic.png">
     </button>
     <button @click="generateSummary" title="生成摘要">
       <img class="bigImg" src="../assets/summary.png">
@@ -204,8 +204,24 @@ export default {
         dragOffsetY: 0
       },
       // 文本字体大小
-      fontSize: 16
+      fontSize: 16,
     };
+  },
+  computed: {
+    cursorStyle() {
+      if (this.currentTool === 'mouse') {
+        return "default"
+      } else if (this.currentTool === 'eraser') {
+        // Vite 唯一能正确加载图片的写法
+        const url = new URL('../assets/eraser-cursor.png', import.meta.url).href
+        console.log(url)
+        return `url(${url}) 4 24, crosshair`
+        // 路径在 v-bind 里不被 Vite 处理 → 图片不显示
+        // return 'url(../assets/eraser-cursor.png), crosshair'
+      } else {
+        return 'crosshair'
+      }
+    }
   },
   mounted() {
     this.canvas = this.$refs.canvas;
@@ -502,7 +518,7 @@ export default {
       } else if (this.currentTool === 'eraser') {
         // 橡皮功能：绘制白色线条覆盖原有内容
         this.ctx.strokeStyle = '#ffffff';
-        this.ctx.lineWidth = this.lineWidth * 2; // 橡皮宽度是线条的2倍
+        this.ctx.lineWidth = this.lineWidth * 8; // 橡皮宽度是线条的8倍
         this.ctx.beginPath();
         this.ctx.moveTo(this.startX, this.startY);
         this.ctx.lineTo(currentX, currentY);
@@ -1500,7 +1516,7 @@ export default {
 
 canvas {
   background-color: white;
-  cursor: v-bind('currentTool === "mouse" ? "default" : "crosshair"');
+  cursor: v-bind(cursorStyle);
 }
 
 .toolbar {
@@ -1529,6 +1545,8 @@ button {
   border-radius: 3px;
   cursor: pointer;
   font-size: 14px;
+  outline: none;
+  box-shadow: 0.1vw 0.1vw 0.4vw rgba(0, 0, 0, 0.5);
   .bigImg {
     width: 3vw;
     height: 3vw;
@@ -1781,6 +1799,8 @@ input[type="range"] {
   border-radius: 5px;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
   color: #333;
+  user-select: none;
+  -webkit-user-select: none;
   div {
     margin: 1vh 0;
     font-size: 0.8vw;
