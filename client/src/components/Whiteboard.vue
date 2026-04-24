@@ -178,6 +178,7 @@ export default {
       strokeId: 0, // 绘制的笔画id
       currentStrokeId: null,
       beautifyStrokeId: null,
+      alreadyBeautify: false, // 避免对美化图形多次美化导致无法撤回
       // 音频播放相关
       playbackAudioContext: null,
       audioDestination: null,
@@ -393,7 +394,8 @@ export default {
       
       // 清空绘制点数组，准备收集新图形的点
       this.drawingPoints = [{ x: this.startX, y: this.startY }];
-      
+      this.alreadyBeautify = false;
+
       if (this.currentTool === 'text' || this.currentTool === 'mouse') {
         // 检查是否点击了调整手柄
         const resizeHandleSize = 8;
@@ -1109,7 +1111,11 @@ export default {
     },
     async beautifyShape() {
       if (this.drawingPoints.length < 3) {
-        this.showToastMessage('请先绘制一个图形', 'info');
+        this.showToastMessage('请先用画笔绘制一个图形', 'info');
+        return;
+      }
+      if (this.alreadyBeautify) {
+        this.showToastMessage('当前图形已美化', 'info');
         return;
       }
       
@@ -1129,10 +1135,10 @@ export default {
           },
           body: JSON.stringify({ points: this.drawingPoints })
         });
-        
         const result = await response.json();
         if (result.success) {
           const beautifiedShape = result.shape;
+          this.alreadyBeautify = true;
           
           // 只有当识别成功且不是pen类型时才进行美化
           if (beautifiedShape.type !== 'pen') {
@@ -1200,6 +1206,7 @@ export default {
             this.elements.push(...this.originalElement);
             // 重新绘制画布
             this.redrawCanvas();
+            this.alreadyBeautify = false;
             console.log('已执行撤销美化操作');
           }
           this.errorUndoBeautify = false;
