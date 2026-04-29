@@ -41,6 +41,16 @@
       </button>
     </div>
     <div>
+      <button @click="setTool('triangle')" :class="{ active: currentTool === 'triangle' }" title="三角形">
+        <img class="icon" src="../assets/triangle.png" alt="triangle" />
+      </button>
+    </div>
+    <div>
+      <button @click="setTool('right_triangle')" :class="{ active: currentTool === 'right_triangle' }" title="直角三角形">
+        <img class="icon" src="../assets/right_triangle.png" alt="right_triangle" />
+      </button>
+    </div>
+    <div>
       <button @click="clearCanvas" title="清空">
         <img class="icon" src="../assets/clear.png" alt="clear" />
       </button>
@@ -246,7 +256,7 @@ export default {
       try {
         // 使用传入的roomCode建立WebSocket连接
         console.log(`与会议室${this.roomCode}建立WebSocket连接`);
-        this.socket = new WebSocket(`ws://192.168.153.168:8080?roomCode=${this.roomCode}`);
+        this.socket = new WebSocket(`ws://192.168.2.9:8080?roomCode=${this.roomCode}`);
         
         this.socket.onopen = () => {
           console.log(`与会议室${this.roomCode}的WebSocket连接成功，readyState: ${this.socket.readyState}`);
@@ -534,17 +544,17 @@ export default {
           startY: this.startY,
           lastX: currentX,
           lastY: currentY,
-          lineWidth: this.lineWidth * 2
+          lineWidth: this.lineWidth * 8
         };
         this.elements.push(element);
         
         // 发送到服务器
         this.sendWebSocketMessage('draw', element);
-        
+
         // 更新起点坐标，实现连续擦除
         this.startX = currentX;
         this.startY = currentY;
-      } else if (this.currentTool === 'rectangle' || this.currentTool === 'circle' || this.currentTool === 'diamond' || this.currentTool === 'arrow') {
+      } else if (this.currentTool === 'rectangle' || this.currentTool === 'circle' || this.currentTool === 'diamond' || this.currentTool === 'arrow' || this.currentTool === 'triangle' || this.currentTool === 'right_triangle') {
         // 清空画布并重新绘制所有元素
         this.ctx.clearRect(0, 0, this.width, this.height);
         this.redrawElements();
@@ -602,6 +612,21 @@ export default {
             currentY - arrowLength * Math.sin(angle + Math.PI / 6)
           );
           this.ctx.stroke();
+        } else if (this.currentTool === 'triangle') {
+          const centerX = (this.startX + currentX) / 2;        
+          this.ctx.beginPath();
+          this.ctx.moveTo(centerX, this.startY);
+          this.ctx.lineTo(currentX, currentY);
+          this.ctx.lineTo(this.startX, currentY);
+          this.ctx.closePath();
+          this.ctx.stroke();
+        } else if (this.currentTool === 'right_triangle') {      
+          this.ctx.beginPath();
+          this.ctx.moveTo(this.startX, this.startY);
+          this.ctx.lineTo(currentX, currentY);
+          this.ctx.lineTo(this.startX, currentY);
+          this.ctx.closePath();
+          this.ctx.stroke();
         }
       }
     },
@@ -609,7 +634,7 @@ export default {
       if (this.isDrawing) {
         if (this.currentTool === 'pen' || this.currentTool === 'eraser') {
           // 画笔和橡皮都已经在draw方法中逐段保存，不需要额外处理
-        } else if (this.currentTool === 'rectangle' || this.currentTool === 'circle' || this.currentTool === 'diamond' || this.currentTool === 'arrow') {
+        } else if (this.currentTool === 'rectangle' || this.currentTool === 'circle' || this.currentTool === 'diamond' || this.currentTool === 'arrow' || this.currentTool === 'triangle' || this.currentTool === 'right_triangle') {
           // 保存图形元素
           const element = {
             type: this.currentTool,
@@ -767,6 +792,21 @@ export default {
             lines.forEach((line, index) => {
               this.ctx.fillText(line, element.x + 10, element.y + 30 + index * lineHeight);
             });
+          } else if (element.type === 'triangle') {
+            const centerX = (element.startX + element.lastX) / 2;
+            this.ctx.beginPath();
+            this.ctx.moveTo(centerX, element.startY);
+            this.ctx.lineTo(element.lastX, element.lastY);
+            this.ctx.lineTo(element.startX, element.lastY);
+            this.ctx.closePath();
+            this.ctx.stroke();
+          } else if (element.type === 'right_triangle') {
+            this.ctx.beginPath();
+            this.ctx.moveTo(element.startX, element.startY);
+            this.ctx.lineTo(element.lastX, element.lastY);
+            this.ctx.lineTo(element.startX, element.lastY);
+            this.ctx.closePath();
+            this.ctx.stroke();
           }
         }
       });
@@ -1119,16 +1159,8 @@ export default {
         return;
       }
       
-      try {
-        // 保存原始元素和当前strokeId，用于撤销美化，有大量元素，不能直接find
-        // this.originalElement = this.elements.find(element => element.strokeId === this.currentStrokeId); 
-        this.elements.forEach(element => {
-          if (element.strokeId === this.currentStrokeId) {
-            this.originalElement.push(element);
-          }
-        })
-        
-        const response = await fetch('http://192.168.153.168:8080/api/recognize-shape', {
+      try {        
+        const response = await fetch('http://192.168.2.9:8080/api/recognize-shape', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1137,11 +1169,18 @@ export default {
         });
         const result = await response.json();
         if (result.success) {
-          const beautifiedShape = result.shape;
-          this.alreadyBeautify = true;
-          
+          const beautifiedShape = result.shape;        
           // 只有当识别成功且不是pen类型时才进行美化
           if (beautifiedShape.type !== 'pen') {
+            this.alreadyBeautify = true;  
+            this.originalElement = []; // 只保留最后一次美化前内容(即只允许撤回最新一次美化操作)
+            // 保存原始元素和当前strokeId，用于撤销美化，有大量元素，不能直接find
+            // this.originalElement = this.elements.find(element => element.strokeId === this.currentStrokeId); 
+            this.elements.forEach(element => {
+              if (element.strokeId === this.currentStrokeId) {
+                this.originalElement.push(element);
+              }
+            })
             // 移除与当前绘制相关的所有pen元素（使用strokeId）
             const elementsBefore = this.elements.length;
             if (this.currentStrokeId) {
@@ -1173,15 +1212,11 @@ export default {
             // 重新绘制画布
             this.redrawCanvas();
           } else {
-            // 如果识别为pen类型，不进行美化，清除原始元素的保存
-            this.originalElement = [];
             // 显示提示
             this.showToastMessage('无法识别为规则图形，保持原始绘制', 'info');
           }
         } else {
           console.error('图形美化失败:', result.error);
-          // 如果美化失败，清除原始元素的保存
-          this.originalElement = [];
         }
       } catch (error) {
         console.error('发送图形数据失败:', error);
@@ -1244,7 +1279,7 @@ export default {
           return;
         }
         
-        const response = await fetch('http://192.168.153.168:8080/api/generate-summary', {
+        const response = await fetch('http://192.168.2.9:8080/api/generate-summary', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1809,6 +1844,7 @@ input[type="range"] {
 .leftToolBar {
   position: absolute;
   left: 2%;
+  top: 10%;
   width: 6vw;
   gap: 10px;
   background-color: rgba(255, 255, 255, 0.8);

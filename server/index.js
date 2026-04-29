@@ -353,6 +353,6 @@ wss.on('connection', (ws, req, roomCode) => {
 // 启动服务
 const PORT = 8080;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ 服务启动: http://192.168.153.168:${PORT}`);
+  console.log(`✅ 服务启动: http://192.168.2.9:${PORT}`);
   setInterval(() => meetingRoomManager.cleanupEmptyRooms(), 5 * 60 * 1000);
 });
