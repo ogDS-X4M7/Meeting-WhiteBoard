@@ -50,6 +50,7 @@ class MeetingRoomManager {
       canvasState: [],
       // beautifyState: null,
       beautifyStates: [],
+      summaryState: false,
     };
     this.rooms.set(code, room);
     return room;
@@ -166,9 +167,25 @@ app.post('/api/recognize-shape', (req, res) => {
 });
 app.post('/api/generate-summary', async (req, res) => {
   try {
+    const { roomCode } = req.body;
+    if (!roomCode) {
+      return res.status(400).json({ success: false, error: '缺少roomCode' });
+    }
+    const room = meetingRoomManager.getRoom(roomCode);
+    if (!room) {
+      return res.status(404).json({ success: false, error: '会议室不存在' });
+    }
+    if (room.summaryState) {
+      return res.status(400).json({ success: false, error: '摘要正在生成中，请稍等' });
+    }
+    room.summaryState = true;
     const s = new SummaryService();
     const sum = await s.generateSummary(req.body.whiteboardContent, req.body.transcriptionHistory);
     res.json({ success: true, summary: sum });
+    // 兜底，1秒后重置状态
+    setTimeout(() => {
+      if (room.summaryState) room.summaryState = false;
+    }, 3000);
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
@@ -338,6 +355,15 @@ wss.on('connection', (ws, req, roomCode) => {
           //   }), ws.id);
           // }
         }
+      }
+      if (parsed.type === 'summary') {
+        meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
+          type: 'summary',
+          data: parsed.data
+        }), ws.id);
+        // 广播重置
+        const room = meetingRoomManager.getRoom(roomCode);
+        room.summaryState = false;
       }
     } catch (e) { }
   });

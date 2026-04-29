@@ -373,6 +373,9 @@ export default {
               // 处理撤销美化错误
               this.errorUndoBeautify = true;
               this.showToastMessage(data.data, 'error');
+            } else if (data.type === 'summary') {
+              console.log(`收到summary消息: ${data.data}`);
+              this.summary = data.data;
             }
           } catch (error) {
             console.error(`处理WebSocket消息时出错: ${error}`);
@@ -1278,13 +1281,20 @@ export default {
           this.showToastMessage('白板内容为空，请先添加内容', 'info');
           return;
         }
-        
+        if (this.summary) {
+          const userConfirmed = confirm('当前已有摘要，是否确定重新生成摘要？');
+          if (!userConfirmed) {
+            console.log('用户取消');
+            return;
+          }
+        }
         const response = await fetch('http://192.168.2.9:8080/api/generate-summary', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
+            roomCode: this.roomCode,
             whiteboardContent,
             transcriptionHistory: this.transcriptionHistory.map(item => {
               if (typeof item === 'object' && item.text) {
@@ -1298,8 +1308,9 @@ export default {
         const result = await response.json();
         if (result.success) {
           this.summary = result.summary;
+          this.sendWebSocketMessage('summary', result.summary);
         } else {
-          console.error('生成摘要失败:', result.error);
+          this.showToastMessage(result.error || '生成摘要失败', 'info');
         }
       } catch (error) {
         console.error('发送数据失败:', error);
