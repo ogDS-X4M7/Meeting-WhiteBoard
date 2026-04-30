@@ -140,6 +140,8 @@
 </template>
 
 <script>
+import { io } from 'socket.io-client';
+
 export default {
   name: 'Whiteboard',
   props: {
@@ -226,7 +228,7 @@ export default {
       } else if (this.currentTool === 'eraser') {
         // Vite 唯一能正确加载图片的写法
         const url = new URL('../assets/eraser-cursor.png', import.meta.url).href
-        console.log(url)
+        // console.log(url)
         return `url(${url}) 4 24, crosshair`
         // 路径在 v-bind 里不被 Vite 处理 → 图片不显示
         // return 'url(../assets/eraser-cursor.png), crosshair'
@@ -254,143 +256,131 @@ export default {
     },
     setupWebSocket() {
       try {
-        // 使用传入的roomCode建立WebSocket连接
-        console.log(`与会议室${this.roomCode}建立WebSocket连接`);
-        this.socket = new WebSocket(`ws://192.168.2.9:8080?roomCode=${this.roomCode}`);
+        console.log(`与会议室${this.roomCode}建立Socket.IO连接`);
+        this.socket = io('http://192.168.2.9:8080', {
+          query: { roomCode: this.roomCode },
+          transports: ['websocket', 'polling'],
+          reconnection: true,
+          reconnectionDelay: 1000,
+          reconnectionDelayMax: 5000,
+          reconnectionAttempts: Infinity
+        });
         
-        this.socket.onopen = () => {
-          console.log(`与会议室${this.roomCode}的WebSocket连接成功，readyState: ${this.socket.readyState}`);
-          // 发送昵称信息到服务器
+        this.socket.on('connect', () => {
+          console.log(`与会议室${this.roomCode}的Socket.IO连接成功`);
           this.sendWebSocketMessage('updateNickname', { nickname: this.nickname });
-        };
+        });
         
-        this.socket.onmessage = (event) => {
-          try {
-            // 检查是否是二进制数据（音频数据）
-            if (event.data instanceof ArrayBuffer) {
-              console.log(`收到音频数据，长度: ${event.data.byteLength}`);
-              // 处理音频数据
-              this.playAudioData(new Int16Array(event.data));
-              return;
-            } else if (event.data instanceof Blob) {
-              console.log(`收到音频数据，大小: ${event.data.size}`);
-              // 将 Blob 转换为 ArrayBuffer
-              event.data.arrayBuffer().then(arrayBuffer => {
-                console.log(`Blob转换为ArrayBuffer，长度: ${arrayBuffer.byteLength}`);
-                this.playAudioData(new Int16Array(arrayBuffer));
-              }).catch(error => {
-                console.error(`Blob转换为ArrayBuffer失败:`, error);
-              });
-              return;
+        this.socket.on('canvasState', (data) => {
+          console.log(`收到canvasState消息，元素数量: ${data.length}`);
+          this.elements = data;
+          this.redrawCanvas();
+          console.log(`canvasState消息已处理`);
+        });
+        
+        this.socket.on('draw', (data) => {
+          console.log(`收到draw消息`);
+          this.elements.push(data);
+          this.redrawCanvas();
+        });
+        
+        this.socket.on('text', (data) => {
+          console.log(`收到text消息`);
+          this.elements.push(data);
+          this.redrawCanvas();
+        });
+        
+        this.socket.on('clear', () => {
+          console.log(`收到clear消息`);
+          this.elements = [];
+          this.ctx.clearRect(0, 0, this.width, this.height);
+        });
+        
+        this.socket.on('beautify', (data) => {
+          console.log(`收到beautify消息`);
+          const { strokeId, newElement } = data;
+          
+          if (strokeId) {
+            this.elements = this.elements.filter(element => !(element.type === 'pen' && element.strokeId === strokeId));
+          }
+          
+          this.elements.push(newElement);
+          this.redrawCanvas();
+        });
+        
+        this.socket.on('socketId', (data) => {
+          this.socketId = data;
+          console.log(`收到socketId: ${this.socketId}`);
+        });
+        
+        this.socket.on('transcriptionResult', (data) => {
+          console.log(`收到语音转写结果: ${data.data || '无内容'} from ${data.speaker || '未知'}`);
+          const speaker = data.speaker || '未知';
+          const transcription = data.data || '';
+          
+          if (transcription) {
+            this.transcriptionBuffer.push({ text: transcription, speaker: speaker, timestamp: Date.now() });
+          }
+          
+          if (transcription) {
+            this.userTranscriptions[speaker] = transcription;
+            
+            if (this.transcriptionTimers[speaker]) {
+              clearTimeout(this.transcriptionTimers[speaker]);
             }
             
-            console.log(`收到WebSocket消息: ${event.data}`);
-            const data = JSON.parse(event.data);
-            if (data.type === 'canvasState') {
-              console.log(`收到canvasState消息，元素数量: ${data.data.length}`);
-              this.elements = data.data;
-              this.redrawCanvas();
-              console.log(`canvasState消息已处理`);
-            } else if (data.type === 'draw') {
-              console.log(`收到draw消息: ${data.data}`);
-              this.elements.push(data.data);
-              this.redrawCanvas();
-            } else if (data.type === 'text') {
-              console.log(`收到text消息: ${data.data}`);
-              this.elements.push(data.data);
-              this.redrawCanvas();
-            } else if (data.type === 'clear') {
-              console.log(`收到clear消息`);
-              this.elements = [];
-              this.ctx.clearRect(0, 0, this.width, this.height);
-            } else if (data.type === 'beautify') {
-              console.log(`收到beautify消息: ${data.data}`);
-              // 处理来自服务器的美化操作
-              const { strokeId, newElement } = data.data;
-              
-              // 移除与当前绘制相关的所有pen元素（使用strokeId）
-              if (strokeId) {
-                this.elements = this.elements.filter(element => !(element.type === 'pen' && element.strokeId === strokeId));
-              }
-              
-              // 添加美化后的元素
-              this.elements.push(newElement);
-              
-              // 重新绘制画布
-              this.redrawCanvas();
-            } else if (data.type === 'socketId') {
-              // 存储 socketId
-              this.socketId = data.data;
-              console.log(`收到socketId: ${this.socketId}`);
-            } else if (data.type === 'error') {
-              console.error(`WebSocket错误: ${data.message}`);
-              this.showToastMessage(data.message, 'error');
-            } else if (data.type === 'transcriptionResult') {
-              // 处理语音转写结果
-              console.log(`收到语音转写结果: ${data.data || '无内容'} from ${data.speaker || '未知'}`);
-              const speaker = data.speaker || '未知';
-              const transcription = data.data || '';
-              console.log(`当前转写内容: ${transcription || '无内容'} 发言人: ${speaker}`);
-              
-              // 将转写结果添加到缓冲区
-              if (transcription) {
-                this.transcriptionBuffer.push({ text: transcription, speaker: speaker, timestamp: Date.now() });
-                console.log('添加到转录缓冲区:', transcription, '发言人:', speaker);
-              }
-              
-              // 更新用户转录结果
-              if (transcription) {
-                this.userTranscriptions[speaker] = transcription;
-                
-                // 清除之前的定时器
-                if (this.transcriptionTimers[speaker]) {
-                  clearTimeout(this.transcriptionTimers[speaker]);
-                }
-                
-                // 设置新的定时器，5秒后清除该用户的字幕
-                this.transcriptionTimers[speaker] = setTimeout(() => {
-                  delete this.userTranscriptions[speaker];
-                  delete this.transcriptionTimers[speaker];
-                }, 5000); // 5000ms = 5秒
-              }
-            } else if (data.type === 'nicknameUpdated') {
-              // 昵称更新确认
-              console.log(`昵称已更新为: ${data.data}`);
-              this.showToastMessage(`昵称已更新为: ${data.data}`, 'success');
-            } else if (data.type === 'transcriptionError') {
-              // 处理语音转写错误
-              console.error(`语音转写错误: ${data.data}`);
-              this.showToastMessage(`语音转写错误: ${data.data}`, 'error');
-            } else if (data.type === 'undoBeautify') {
-              // 处理撤销美化操作
-              console.log(`收到undoBeautify消息: ${data.data}`);
-              // 撤销美化操作，移除美化后的元素，恢复原始状态
-              // 由于我们没有保存原始状态，这里需要重新获取画布状态
-              // 服务器会广播canvasState消息，所以这里不需要做任何操作
-              // 只需要等待canvasState消息即可
-              console.log(`收到undoBeautify消息，等待canvasState更新`);
-            } else if (data.type === 'errorBeautify') {
-              // 处理撤销美化错误
-              this.errorUndoBeautify = true;
-              this.showToastMessage(data.data, 'error');
-            } else if (data.type === 'summary') {
-              console.log(`收到summary消息: ${data.data}`);
-              this.summary = data.data;
-            }
-          } catch (error) {
-            console.error(`处理WebSocket消息时出错: ${error}`);
+            this.transcriptionTimers[speaker] = setTimeout(() => {
+              delete this.userTranscriptions[speaker];
+              delete this.transcriptionTimers[speaker];
+            }, 5000);
           }
-        };
+        });
         
-        this.socket.onclose = () => {
-          console.log(`WebSocket 已断开连接，会议室: ${this.roomCode}`);
-        };
+        this.socket.on('nicknameUpdated', (data) => {
+          console.log(`昵称已更新为: ${data}`);
+          this.showToastMessage(`昵称已更新为: ${data}`, 'success');
+        });
         
-        this.socket.onerror = (error) => {
-          console.error(`WebSocket 错误: ${error}`);
-        };
+        this.socket.on('errorBeautify', (data) => {
+          this.errorUndoBeautify = true;
+          this.showToastMessage(data, 'error');
+        });
+        
+        this.socket.on('summary', (data) => {
+          console.log(`收到summary消息: ${data}`);
+          this.summary = data;
+        });
+        
+        this.socket.on('audio', (data) => {
+          console.log(`收到音频数据，长度: ${data.byteLength}`);
+          this.playAudioData(new Int16Array(data));
+        });
+        
+        this.socket.on('disconnect', (reason) => {
+          console.log(`Socket.IO 已断开连接，原因: ${reason}`);
+          if (reason === 'io server disconnect') {
+            console.log('服务器主动断开连接，需要手动重连');
+          }
+        });
+        
+        this.socket.on('connect_error', (error) => {
+          console.error(`Socket.IO 连接错误: ${error}`);
+        });
+        
+        this.socket.on('reconnect', (attemptNumber) => {
+          console.log(`Socket.IO 重连成功，尝试次数: ${attemptNumber}`);
+        });
+        
+        this.socket.on('reconnect_error', (error) => {
+          console.error(`Socket.IO 重连失败: ${error}`);
+        });
+        
+        this.socket.on('reconnect_failed', () => {
+          console.error('Socket.IO 重连失败');
+        });
+        
       } catch (error) {
-        console.error(`设置WebSocket连接时出错: ${error}`);
+        console.error(`设置Socket.IO连接时出错: ${error}`);
       }
     },
     setTool(tool) {
@@ -971,11 +961,11 @@ export default {
       link.click();
     },
     sendWebSocketMessage(type, data) {
-      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-        console.log(`Sending WebSocket message: ${type}, data length: ${JSON.stringify(data).length}`);
-        this.socket.send(JSON.stringify({ type, data }));
+      if (this.socket && this.socket.connected) {
+        console.log(`Sending Socket.IO message: ${type}`);
+        this.socket.emit(type, data);
       } else {
-        console.error('WebSocket not open, readyState:', this.socket ? this.socket.readyState : 'null');
+        console.error('Socket.IO not connected');
       }
     },
     async toggleSpeechRecognition() {
@@ -1029,7 +1019,7 @@ export default {
         
         // 每400ms发送一次音频数据
         const sendInterval = setInterval(() => {
-          if (this.isRecording && audioBuffer.length > 0 && this.socket && this.socket.readyState === WebSocket.OPEN) {
+          if (this.isRecording && audioBuffer.length > 0 && this.socket && this.socket.connected) {
             // 合并缓冲区中的音频数据
             const mergedData = new Int16Array(audioBuffer.reduce((total, buffer) => total + buffer.length, 0));
             let offset = 0;
@@ -1039,7 +1029,7 @@ export default {
             });
             
             // 发送音频数据到服务器
-            this.socket.send(mergedData.buffer);
+            this.socket.emit('audio', mergedData.buffer);
             
             // 清空缓冲区
             audioBuffer = [];
@@ -1245,14 +1235,14 @@ export default {
             // 重新绘制画布
             this.redrawCanvas();
             this.alreadyBeautify = false;
-            console.log('已执行撤销美化操作');
+            this.showToastMessage('已执行撤销美化操作', 'success');
           }
           this.errorUndoBeautify = false;
           // 清空原始元素的保存
           this.originalElement = [];
         }, 300);
       } else {
-        console.log('没有可撤销的美化操作');
+        this.showToastMessage('没有可撤销的美化操作', 'info');
       }
     },
     async generateSummary() {
@@ -1358,13 +1348,11 @@ export default {
     closeWebSocket() {
       console.log('closeWebSocket called, socket:', this.socket);
       if (this.socket) {
-        console.log('WebSocket readyState:', this.socket.readyState);
-        // 不管连接处于什么状态，都尝试关闭它
         try {
-          this.socket.close(1000, 'User left meeting');
-          console.log('WebSocket connection closed');
+          this.socket.disconnect();
+          console.log('Socket.IO connection closed');
         } catch (error) {
-          console.error('Error closing WebSocket connection:', error);
+          console.error('Error closing Socket.IO connection:', error);
         }
       } else {
         console.log('No socket to close');
@@ -1491,16 +1479,12 @@ export default {
           sampleRate: 16000
         });
         this.audioDestination = this.playbackAudioContext.destination;
-        console.log('Audio playback initialized');
       }
     },
     
     // 播放音频数据
     playAudioData(audioData) {
       try {
-        console.log('Received audio data for playback, length:', audioData.length);
-        console.log('Audio data sample values:', audioData.slice(0, 10));
-        
         this.initAudioPlayback();
         
         // 创建音频缓冲区
@@ -1517,7 +1501,6 @@ export default {
         source.buffer = buffer;
         source.connect(this.audioDestination);
         source.start();
-        console.log('Audio data played successfully');
       } catch (error) {
         console.error('Error playing audio data:', error);
       }

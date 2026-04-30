@@ -1,7 +1,7 @@
 const http = require('http');
 const express = require('express');
 const multer = require('multer');
-const WebSocket = require('ws');
+const { Server } = require('socket.io');
 const SpeechService = require('./speechService');
 const ShapeRecognitionService = require('./shapeRecognitionService');
 const SummaryService = require('./summaryService');
@@ -22,7 +22,13 @@ app.use((req, res, next) => {
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ noServer: true });
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  },
+  transports: ['websocket', 'polling']
+});
 
 // 会议室管理
 class MeetingRoomManager {
@@ -48,7 +54,6 @@ class MeetingRoomManager {
       lastActivityTime: new Date(),
       members: [],
       canvasState: [],
-      // beautifyState: null,
       beautifyStates: [],
       summaryState: false,
     };
@@ -110,22 +115,9 @@ class MeetingRoomManager {
   getCanvasState(code) {
     return this.rooms.get(code)?.canvasState || [];
   }
-  broadcastToRoom(code, msg, excludeId) {
-    const room = this.rooms.get(code);
-    if (!room) return;
-    room.members.forEach(m => {
-      if (m.socketId !== excludeId) {
-        const ws = clients.find(c => c.id === m.socketId);
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(msg);
-        }
-      }
-    });
-  }
 }
 
 const meetingRoomManager = new MeetingRoomManager();
-let clients = [];
 
 // API 接口
 app.get('/', (req, res) => res.send('ok'));
@@ -182,7 +174,6 @@ app.post('/api/generate-summary', async (req, res) => {
     const s = new SummaryService();
     const sum = await s.generateSummary(req.body.whiteboardContent, req.body.transcriptionHistory);
     res.json({ success: true, summary: sum });
-    // 兜底，1秒后重置状态
     setTimeout(() => {
       if (room.summaryState) room.summaryState = false;
     }, 3000);
@@ -191,189 +182,147 @@ app.post('/api/generate-summary', async (req, res) => {
   }
 });
 
-// WebSocket
-server.on('upgrade', (req, socket, head) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const roomCode = url.searchParams.get('roomCode');
+// Socket.IO 连接处理
+io.on('connection', (socket) => {
+  const roomCode = socket.handshake.query.roomCode;
+
   if (!roomCode) {
-    socket.destroy();
+    socket.disconnect();
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws) => {
-    wss.emit('connection', ws, req, roomCode);
-  });
-});
 
-wss.on('connection', (ws, req, roomCode) => {
-  ws.id = `socket_${Date.now()}`;
-  ws.roomCode = roomCode;
-  meetingRoomManager.joinRoom(roomCode, ws.id);
-  clients.push(ws);
+  socket.roomCode = roomCode;
+  meetingRoomManager.joinRoom(roomCode, socket.id);
 
-  ws.send(JSON.stringify({
-    type: 'canvasState',
-    data: meetingRoomManager.getCanvasState(roomCode)
-  }));
-  ws.send(JSON.stringify({
-    type: 'socketId',
-    data: ws.id
-  }));
+  // 加入socket.io房间
+  socket.join(roomCode);
+
+  // 发送当前画布状态和socketId
+  socket.emit('canvasState', meetingRoomManager.getCanvasState(roomCode));
+  socket.emit('socketId', socket.id);
 
   let speechService = null;
 
-  ws.on('message', (data, isBinary) => {
-    try {
-      if (isBinary) {
-        if (speechService?.isConnected) {
-          speechService.sendAudio(data);
-        }
-        meetingRoomManager.broadcastToRoom(roomCode, data, ws.id);
-        return;
-      }
-      const parsed = JSON.parse(data.toString());
-      if (parsed.type === 'draw') {
-        const s = meetingRoomManager.getCanvasState(roomCode);
-        s.push(parsed.data);
-        meetingRoomManager.updateCanvasState(roomCode, s);
-        meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
-          type: 'draw',
-          data: parsed.data
-        }), ws.id);
-      }
-      if (parsed.type === 'text') {
-        const s = meetingRoomManager.getCanvasState(roomCode);
-        s.push(parsed.data);
-        meetingRoomManager.updateCanvasState(roomCode, s);
-        meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
-          type: 'text',
-          data: parsed.data
-        }), ws.id);
-      }
-      if (parsed.type === 'clear') {
-        meetingRoomManager.updateCanvasState(roomCode, []);
-        const room = meetingRoomManager.getRoom(roomCode);
-        room.beautifyStates = [];
-        meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
-          type: 'clear'
-        }), ws.id);
-      }
-      if (parsed.type === 'canvasState') {
-        meetingRoomManager.updateCanvasState(roomCode, parsed.data);
-        meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
-          type: 'canvasState',
-          data: parsed.data
-        }), ws.id);
-      }
-      if (parsed.type === 'beautify') {
-        const { strokeId, newElement } = parsed.data;
-        const curr = meetingRoomManager.getCanvasState(roomCode);
-        const room = meetingRoomManager.getRoom(roomCode);
-        if (room && strokeId) {
-          // room.beautifyState = { originalState: [...curr], strokeId };
-          // 存储美化前绘制内容
-          let item = { state: [], strokeId };
-          curr.forEach(e => {
-            if (e.type === 'pen' && e.strokeId === strokeId) {
-              item.state.push(e);
-            }
-          });
-          room.beautifyStates.push(item);
-        }
-        // let updated = strokeId ? curr.filter(e => !(e.type === 'pen' && e.strokeId === strokeId)) : curr.filter(e => e.type !== 'pen');
-        let updated = curr.filter(e => !(e.type === 'pen' && e.strokeId === strokeId));
-        updated.push(newElement);
-        meetingRoomManager.updateCanvasState(roomCode, updated);
-        meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
-          type: 'beautify',
-          data: parsed.data
-        }), ws.id);
-      }
-      if (parsed.type === 'startTranscription') {
-        if (!speechService) {
-          speechService = new SpeechService();
-        }
-        speechService.connect(t => {
-          const room = meetingRoomManager.getRoom(roomCode);
-          const nick = room?.members.find(m => m.socketId === ws.id)?.nickname || '未知';
-          meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
-            type: 'transcriptionResult',
-            data: t,
-            speaker: nick
-          }));
-        }, console.error, () => { });
-      }
-      if (parsed.type === 'stopTranscription') speechService?.sendEnd();
-      if (parsed.type === 'updateNickname') {
-        const m = meetingRoomManager.getRoom(roomCode)?.members.find(x => x.socketId === ws.id);
-        if (m) m.nickname = parsed.data.nickname;
-        ws.send(JSON.stringify({
-          type: 'nicknameUpdated',
-          data: parsed.data.nickname
-        }));
-      }
-      if (parsed.type === 'undoBeautify') {
-        const room = meetingRoomManager.getRoom(roomCode);
-        const { strokeId } = parsed.data;
-        const curr = meetingRoomManager.getCanvasState(roomCode);
-        if (room?.beautifyStates.length) {
-          // 找到要撤销的美化操作
-          let getItem = room.beautifyStates.find(item => item.strokeId === strokeId);
-          if (getItem) {
-            // 从当前canvas中移除美化后内容
-            let updated = curr.filter(e => !(e.strokeId === strokeId));
-            // 将美化前内容添加到新内容中
-            updated.push(...getItem.state);
-            // 即将完成撤销，那么旧内容不需要保存，过滤掉即可
-            room.beautifyStates = room.beautifyStates.filter(item => item.strokeId !== strokeId);
-            // 将房间canvas更新为新内容，广播
-            meetingRoomManager.updateCanvasState(roomCode, updated);
-            meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
-              type: 'canvasState',
-              data: meetingRoomManager.getCanvasState(roomCode)
-            }), ws.id);
-          } else {
-            ws.send(JSON.stringify({
-              type: 'errorBeautify',
-              data: '撤销的美化操作不存在，strokeId匹配异常'
-            }));
-            return;
-          }
-          // 因为可能有多用户操作，如果用户申请撤回美化的操作不是当前最新的美化操作，则驳回，
-          // 否则其他用户的美化操作会因为撤回而直接移除
-          // if (strokeId !== room.beautifyState.strokeId) {
-          //   ws.send(JSON.stringify({
-          //     type: 'errorBeautify',
-          //     data: '其他用户已执行美化操作，撤回可能带来意外结果，建议您选择橡皮擦拭重绘'
-          //   }));
-          //   return;
-          // } else {
-          //   meetingRoomManager.updateCanvasState(roomCode, room.beautifyState.originalState);
-          //   room.beautifyState = null;
-          //   meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
-          //     type: 'canvasState',
-          //     data: meetingRoomManager.getCanvasState(roomCode)
-          //   }), ws.id);
-          // }
-        }
-      }
-      if (parsed.type === 'summary') {
-        meetingRoomManager.broadcastToRoom(roomCode, JSON.stringify({
-          type: 'summary',
-          data: parsed.data
-        }), ws.id);
-        // 广播重置
-        const room = meetingRoomManager.getRoom(roomCode);
-        room.summaryState = false;
-      }
-    } catch (e) { }
+  // 监听绘制事件
+  socket.on('draw', (data) => {
+    const s = meetingRoomManager.getCanvasState(roomCode);
+    s.push(data);
+    meetingRoomManager.updateCanvasState(roomCode, s);
+    socket.to(roomCode).emit('draw', data);
   });
 
-  ws.on('close', () => {
-    speechService?.close();
-    meetingRoomManager.leaveRoom(ws.roomCode, ws.id);
-    clients = clients.filter(c => c !== ws);
+  // 监听文本事件
+  socket.on('text', (data) => {
+    const s = meetingRoomManager.getCanvasState(roomCode);
+    s.push(data);
+    meetingRoomManager.updateCanvasState(roomCode, s);
+    socket.to(roomCode).emit('text', data);
   });
-  ws.on('error', () => { });
+
+  // 监听清空事件
+  socket.on('clear', () => {
+    meetingRoomManager.updateCanvasState(roomCode, []);
+    const room = meetingRoomManager.getRoom(roomCode);
+    if (room) room.beautifyStates = [];
+    socket.to(roomCode).emit('clear');
+  });
+
+  // 监听画布状态同步事件
+  socket.on('canvasState', (data) => {
+    meetingRoomManager.updateCanvasState(roomCode, data);
+    socket.to(roomCode).emit('canvasState', data);
+  });
+
+  // 监听美化事件
+  socket.on('beautify', (data) => {
+    const { strokeId, newElement } = data;
+    const curr = meetingRoomManager.getCanvasState(roomCode);
+    const room = meetingRoomManager.getRoom(roomCode);
+
+    if (room && strokeId) {
+      let item = { state: [], strokeId };
+      curr.forEach(e => {
+        if (e.type === 'pen' && e.strokeId === strokeId) {
+          item.state.push(e);
+        }
+      });
+      room.beautifyStates.push(item);
+    }
+
+    let updated = curr.filter(e => !(e.type === 'pen' && e.strokeId === strokeId));
+    updated.push(newElement);
+    meetingRoomManager.updateCanvasState(roomCode, updated);
+    socket.to(roomCode).emit('beautify', data);
+  });
+
+  // 监听开始转写事件
+  socket.on('startTranscription', () => {
+    if (!speechService) {
+      speechService = new SpeechService();
+    }
+    speechService.connect(t => {
+      const room = meetingRoomManager.getRoom(roomCode);
+      const nick = room?.members.find(m => m.socketId === socket.id)?.nickname || '未知';
+      io.to(roomCode).emit('transcriptionResult', { data: t, speaker: nick });
+    }, console.error, () => { });
+  });
+
+  // 监听停止转写事件
+  socket.on('stopTranscription', () => {
+    speechService?.sendEnd();
+  });
+
+  // 监听更新昵称事件
+  socket.on('updateNickname', (data) => {
+    const m = meetingRoomManager.getRoom(roomCode)?.members.find(x => x.socketId === socket.id);
+    if (m) m.nickname = data.nickname;
+    socket.emit('nicknameUpdated', data.nickname);
+  });
+
+  // 监听撤销美化事件
+  socket.on('undoBeautify', (data) => {
+    const room = meetingRoomManager.getRoom(roomCode);
+    const { strokeId } = data;
+    const curr = meetingRoomManager.getCanvasState(roomCode);
+
+    if (room?.beautifyStates.length) {
+      let getItem = room.beautifyStates.find(item => item.strokeId === strokeId);
+      if (getItem) {
+        let updated = curr.filter(e => !(e.strokeId === strokeId));
+        updated.push(...getItem.state);
+        room.beautifyStates = room.beautifyStates.filter(item => item.strokeId !== strokeId);
+        meetingRoomManager.updateCanvasState(roomCode, updated);
+        socket.to(roomCode).emit('canvasState', meetingRoomManager.getCanvasState(roomCode));
+      } else {
+        socket.emit('errorBeautify', '撤销的美化操作不存在，strokeId匹配异常');
+      }
+    }
+  });
+
+  // 监听摘要事件
+  socket.on('summary', (data) => {
+    socket.to(roomCode).emit('summary', data);
+    const room = meetingRoomManager.getRoom(roomCode);
+    if (room) room.summaryState = false;
+  });
+
+  // 监听二进制音频数据
+  socket.on('audio', (data) => {
+    if (speechService?.isConnected) {
+      speechService.sendAudio(data);
+    }
+    socket.to(roomCode).emit('audio', data);
+  });
+
+  // 监听断开连接
+  socket.on('disconnect', () => {
+    speechService?.close();
+    meetingRoomManager.leaveRoom(roomCode, socket.id);
+  });
+
+  socket.on('error', (err) => {
+    console.error('Socket error:', err);
+  });
 });
 
 // 启动服务
