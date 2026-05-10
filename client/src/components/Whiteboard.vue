@@ -104,7 +104,7 @@
     
     <div v-if="summary" class="summary-container">
       <h4>会议摘要:</h4>
-      <div class="summary-content" v-html="summary"></div>
+      <div class="summary-content" v-html="parsedSummary"></div>
       <button @click="clearSummary">清空摘要</button>
     </div>
     <!-- 多用户字幕样式的转写结果展示 -->
@@ -141,6 +141,7 @@
 
 <script>
 import { io } from 'socket.io-client';
+import { marked } from 'marked';
 
 export default {
   name: 'Whiteboard',
@@ -179,7 +180,52 @@ export default {
       processor: null, // 音频处理器
       stream: null, // 音频流
       drawingPoints: [], // 收集当前绘制点
-      summary: '', // 摘要
+      // summary: ``, // 摘要
+      summary: `## 会议摘要
+
+### 讨论主题
+- 项目进度汇报
+- 技术方案讨论
+- 下周工作计划
+
+### 主要决议
+**1. 项目进度**
+- 前端开发完成80%
+- 后端接口联调中
+- 文档撰写进行中
+
+**2. 技术方案**
+> 采用微服务架构，使用Vue3 + Node.js技术栈
+
+### 待办事项
+1. 完成用户认证模块
+2. 优化数据库查询性能
+3. 编写单元测试
+
+### 任务分配表
+
+| 成员   | 任务           | 截止日期 | 状态   |
+|--------|----------------|----------|--------|
+| 张三   | 用户认证模块   | 1月20日  | 进行中 |
+| 李四   | 数据库优化     | 1月22日  | 待开始 |
+| 王五   | 单元测试编写   | 1月25日  | 进行中 |
+
+### 会议记录
+
+| 时间     | 发言人 | 内容                         |
+|----------|--------|------------------------------|
+| 14:00    | 主持人 | 宣布会议开始                 |
+| 14:05    | 张三   | 汇报前端开发进度             |
+| 14:15    | 李四   | 汇报后端接口联调情况        |
+| 14:30    | 王五   | 讨论测试覆盖率提升方案      |
+
+\`\`\`javascript
+// 示例代码
+const summary = generateSummary(data);
+console.log(summary);
+\`\`\`
+
+**会议结束时间**: 2024年1月15日`, // 摘要
       transcriptionHistory: [],
       transcriptionBuffer: [], // 转录缓冲区，用于存储时间窗口内的结果
       bufferTimer: null, // 定期检查缓冲区的定时器
@@ -235,6 +281,9 @@ export default {
       } else {
         return 'crosshair'
       }
+    },
+    parsedSummary() {
+      return marked.parse(this.summary) || '';
     }
   },
   mounted() {
@@ -257,7 +306,7 @@ export default {
     setupWebSocket() {
       try {
         console.log(`与会议室${this.roomCode}建立Socket.IO连接`);
-        this.socket = io('http://192.168.2.9:8080', {
+        this.socket = io('http://192.168.2.12:8080', {
           query: { roomCode: this.roomCode },
           transports: ['websocket', 'polling'],
           reconnection: true,
@@ -1153,7 +1202,7 @@ export default {
       }
       
       try {        
-        const response = await fetch('http://192.168.2.9:8080/api/recognize-shape', {
+        const response = await fetch('http://192.168.2.12:8080/api/recognize-shape', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1278,7 +1327,7 @@ export default {
             return;
           }
         }
-        const response = await fetch('http://192.168.2.9:8080/api/generate-summary', {
+        const response = await fetch('http://192.168.2.12:8080/api/generate-summary', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1711,6 +1760,7 @@ input[type="range"] {
   padding: 10px;
   border-radius: 5px;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  text-align: left;
   max-width: 300px;
   max-height: 300px;
   overflow-y: auto;
@@ -1727,17 +1777,28 @@ input[type="range"] {
   line-height: 1.4;
   color: #666;
   margin-bottom: 10px;
+  padding-left: 16px;
 }
 
-.summary-content h1, .summary-content h2, .summary-content h3, .summary-content h4 {
-  margin: 10px 0 5px 0;
-  font-size: 14px;
-  color: #333;
+.summary-content :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 10px;
 }
 
-.summary-content ul, .summary-content ol {
-  margin: 5px 0;
-  padding-left: 20px;
+.summary-content :deep(table th),
+.summary-content :deep(table td) {
+  border: 1px solid #666;
+  padding: 8px;
+  text-align: left;
+}
+
+.summary-content :deep(table th) {
+  background-color: #e0e0e0;
+}
+
+.summary-content :deep(table tr:nth-child(even)) {
+  background-color: #f9f9f9;
 }
 
 .summary-container button {
