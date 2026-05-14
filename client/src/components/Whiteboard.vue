@@ -100,6 +100,10 @@
       @mousemove="draw"
       @mouseup="stopDrawing"
       @mouseleave="stopDrawing"
+      @touchstart="handleTouchStart"
+      @touchmove="handleTouchMove"
+      @touchend="handleTouchEnd"
+      @touchcancel="handleTouchEnd"
     ></canvas>
     
     <div v-if="summary" class="summary-container">
@@ -180,52 +184,54 @@ export default {
       processor: null, // 音频处理器
       stream: null, // 音频流
       drawingPoints: [], // 收集当前绘制点
-      // summary: ``, // 摘要
-      summary: `## 会议摘要
+      summary: ``, // 摘要
+//       summary: `## 会议摘要
 
-### 讨论主题
-- 项目进度汇报
-- 技术方案讨论
-- 下周工作计划
+// ### 讨论主题
+// - 项目进度汇报
+// - 技术方案讨论
+// - 下周工作计划
 
-### 主要决议
-**1. 项目进度**
-- 前端开发完成80%
-- 后端接口联调中
-- 文档撰写进行中
+// ### 主要决议
+// **1. 项目进度**
+// - 前端开发完成80%
+// - 后端接口联调中
+// - 文档撰写进行中
 
-**2. 技术方案**
-> 采用微服务架构，使用Vue3 + Node.js技术栈
+// **2. 技术方案**
+// > 采用微服务架构，使用Vue3 + Node.js技术栈
 
-### 待办事项
-1. 完成用户认证模块
-2. 优化数据库查询性能
-3. 编写单元测试
+// ### 待办事项
+// 1. 完成用户认证模块
+// 2. 优化数据库查询性能
+// 3. 编写单元测试
 
-### 任务分配表
+// ### 任务分配表
 
-| 成员   | 任务           | 截止日期 | 状态   |
-|--------|----------------|----------|--------|
-| 张三   | 用户认证模块   | 1月20日  | 进行中 |
-| 李四   | 数据库优化     | 1月22日  | 待开始 |
-| 王五   | 单元测试编写   | 1月25日  | 进行中 |
+// | 成员   | 任务           | 截止日期 | 状态   |
+// |--------|----------------|----------|--------|
+// | 张三   | 用户认证模块   | 1月20日  | 进行中 |
+// | 李四   | 数据库优化     | 1月22日  | 待开始 |
+// | 王五   | 单元测试编写   | 1月25日  | 进行中 |
 
-### 会议记录
+// ### 会议记录
 
-| 时间     | 发言人 | 内容                         |
-|----------|--------|------------------------------|
-| 14:00    | 主持人 | 宣布会议开始                 |
-| 14:05    | 张三   | 汇报前端开发进度             |
-| 14:15    | 李四   | 汇报后端接口联调情况        |
-| 14:30    | 王五   | 讨论测试覆盖率提升方案      |
+// | 时间     | 发言人 | 内容                         |
+// |----------|--------|------------------------------|
+// | 14:00    | 主持人 | 宣布会议开始                 |
+// | 14:05    | 张三   | 汇报前端开发进度             |
+// | 14:15    | 李四   | 汇报后端接口联调情况        |
+// | 14:30    | 王五   | 讨论测试覆盖率提升方案      |
 
-\`\`\`javascript
-// 示例代码
-const summary = generateSummary(data);
-console.log(summary);
-\`\`\`
+// \`\`\`javascript
+// // 示例代码
+// const summary = generateSummary(data);
+// console.log(summary);
+// \`\`\`
 
-**会议结束时间**: 2024年1月15日`, // 摘要
+// **会议结束时间**: 2024年1月15日`, // 摘要
+
+
       transcriptionHistory: [],
       transcriptionBuffer: [], // 转录缓冲区，用于存储时间窗口内的结果
       bufferTimer: null, // 定期检查缓冲区的定时器
@@ -306,7 +312,7 @@ console.log(summary);
     setupWebSocket() {
       try {
         console.log(`与会议室${this.roomCode}建立Socket.IO连接`);
-        this.socket = io('http://192.168.2.12:8080', {
+        this.socket = io('http://192.168.153.168:8080', {
           query: { roomCode: this.roomCode },
           transports: ['websocket', 'polling'],
           reconnection: true,
@@ -727,6 +733,70 @@ console.log(summary);
           resizeHandleSize
         );
       }
+    },
+    // 触摸事件处理方法
+    handleTouchStart(e) {
+      if (this.currentTool === 'mouse') {
+        // 如果是鼠标工具，允许移动端用户拖动画布
+        return;
+      } else {
+        // 阻止默认行为（如页面滚动、缩放）
+        e.preventDefault();
+        
+        // 获取第一个触摸点
+        const touch = e.touches[0];
+        const rect = this.canvas.getBoundingClientRect();
+        
+        // 创建模拟的鼠标事件对象
+        const mouseEvent = {
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          target: e.target
+        };
+        
+        // 调用现有的鼠标事件处理方法
+        this.startDrawing(mouseEvent);
+      }
+    },
+    handleTouchMove(e) {
+      // 如果是鼠标工具，允许移动端用户拖动/滚动页面
+      if (this.currentTool === 'mouse') {
+        return;
+      }
+      
+      // 阻止默认行为（如页面滚动）
+      e.preventDefault();
+      
+      // 获取第一个触摸点
+      const touch = e.touches[0];
+      const rect = this.canvas.getBoundingClientRect();
+      
+      // 创建模拟的鼠标事件对象
+      const mouseEvent = {
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        target: e.target
+      };
+      
+      // 调用现有的鼠标事件处理方法
+      this.draw(mouseEvent);
+    },
+    handleTouchEnd(e) {
+      // 如果是鼠标工具，不阻止默认行为
+      if (this.currentTool === 'mouse') {
+        return;
+      }
+      
+      // 阻止默认行为
+      e.preventDefault();
+      
+      // 创建模拟的鼠标事件对象
+      const mouseEvent = {
+        target: e.target
+      };
+      
+      // 调用现有的鼠标事件处理方法
+      this.stopDrawing(mouseEvent);
     },
     redrawCanvas() {
       this.ctx.clearRect(0, 0, this.width, this.height);
@@ -1202,7 +1272,7 @@ console.log(summary);
       }
       
       try {        
-        const response = await fetch('http://192.168.2.12:8080/api/recognize-shape', {
+        const response = await fetch('http://192.168.153.168:8080/api/recognize-shape', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1327,7 +1397,7 @@ console.log(summary);
             return;
           }
         }
-        const response = await fetch('http://192.168.2.12:8080/api/generate-summary', {
+        const response = await fetch('http://192.168.153.168:8080/api/generate-summary', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1754,15 +1824,15 @@ input[type="range"] {
 
 .summary-container {
   position: absolute;
-  bottom: 10px;
-  right: 10px;
+  bottom: 1vw;
+  right: 1vw;
   background-color: rgba(255, 255, 255, 0.9);
-  padding: 10px;
+  padding: 1vw;
   border-radius: 5px;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
   text-align: left;
-  max-width: 300px;
-  max-height: 300px;
+  max-width: 30vw;
+  max-height: 30vw;
   overflow-y: auto;
 }
 
